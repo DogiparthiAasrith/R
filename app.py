@@ -16,7 +16,6 @@ def num(x):
     except:
         return 0.0
 
-
 def safeval(df, col, name):
     filt = df[col].astype(str).str.contains(name, case=False, na=False)
     v = df.loc[filt]
@@ -24,7 +23,6 @@ def safeval(df, col, name):
         return v.iloc[0]
     else:
         return pd.Series(dtype=object)
-
 
 def read_bs_and_pl(iofile):
     xl = pd.ExcelFile(iofile)
@@ -55,7 +53,6 @@ def read_bs_and_pl(iofile):
 
     return bs, pl
 
-
 def write_notes_with_labels(writer, sheetname, notes_with_labels):
     startrow = 0
     for label, df in notes_with_labels:
@@ -64,7 +61,6 @@ def write_notes_with_labels(writer, sheetname, notes_with_labels):
         startrow += 1
         df.to_excel(writer, sheet_name=sheetname, startrow=startrow, index=False)
         startrow += len(df) + 2  # Gap between notes
-
 
 def process_financials(bs_df, pl_df):
     L, A = 'LIABILITIES', 'ASSETS'
@@ -84,7 +80,7 @@ def process_financials(bs_df, pl_df):
     surplus_cy = num(surplus_row.get('CY (₹)', 0))
     surplus_py = num(surplus_row.get('PY (₹)', 0))
     surplus_open_cy = surplus_py
-    surplus_open_py = 70000  # Fixed as per original logic
+    surplus_open_py = 70000  # Fixed prior year opening
 
     profit_row = safeval(bs_df, L, "Add: Current Year Profit")
     profit_cy = num(profit_row.get('CY (₹)', 0))
@@ -150,7 +146,7 @@ def process_financials(bs_df, pl_df):
     tax_cy = num(tax_row.get('CY (₹)', 0))
     tax_py = num(tax_row.get('PY (₹)', 0))
 
-    # PPE computation
+    # PPE assets
     land_cy = num(safeval(bs_df, A, "Land").get('CY (₹)', 0))
     plant_cy = num(safeval(bs_df, A, "Plant").get('CY (₹)', 0))
     furn_cy = num(safeval(bs_df, A, "Furniture").get('CY (₹)', 0))
@@ -361,11 +357,13 @@ def process_financials(bs_df, pl_df):
     pat_cy = pbt_cy - tax_cy
     pat_py = pbt_py - tax_py
 
-    num_shares = share_cap_cy / 10 if share_cap_cy > 0 else 10000  # assume ₹10/share
+    num_shares = share_cap_cy / 10 if share_cap_cy > 0 else 10000  # Assume ₹10/share
     eps_cy = pat_cy / num_shares if num_shares > 0 else 0
     eps_py = pat_py / num_shares if num_shares > 0 else 0
 
-    # === Prepare Output DataFrames ===
+    # ===========================================================
+    # Prepare Output DataFrames for Balance Sheet, P&L, Notes
+    # ===========================================================
 
     bs_out = pd.DataFrame([
         ['Particulars', 'Note No.', 'CY (₹)', 'PY (₹)'],
@@ -387,9 +385,9 @@ def process_financials(bs_df, pl_df):
         ['ASSETS', '', '', ''],
         ['1. Non-Current Assets', '', '', ''],
         ['(a) Fixed Assets', '', '', ''],
-        ['     (i) Tangible Assets', 11, net_ppe_cy, net_ppe_py],
-        ['     (ii) Intangible Assets', 12, 0, 0],
-        ['     (iii) Capital Work-in-Progress', 13, cwip_cy, cwip_py],
+        ['     (i) Tangible Assets', 11, net_ppe_cy, net_ppe_py],
+        ['     (ii) Intangible Assets', 12, 0, 0],
+        ['     (iii) Capital Work-in-Progress', 13, cwip_cy, cwip_py],
         ['(b) Non-Current Investments', 14, investments_cy, investments_py],
         ['(c) Deferred Tax Assets (Net)', 15, dta_cy, dta_py],
         ['(d) Long-Term Loans and Advances', 16, longterm_loans_cy, longterm_loans_py],
@@ -424,8 +422,7 @@ def process_financials(bs_df, pl_df):
         ['VIII. Earnings per Equity Share (Basic & Diluted)', '', eps_cy, eps_py]
     ])
 
-    # Notes creation (only a few sample notes shown here due to length - you can expand as needed)
-
+    # Notes (show sample first two notes, you can add others similarly)
     note1 = pd.DataFrame({
         'Particulars': [
             'Authorised Share Capital',
@@ -467,28 +464,27 @@ def process_financials(bs_df, pl_df):
         ]
     })
 
-    # ... Define other notes similarly (up to note26) ...
+    notes = [
+        ("Note 1: Share Capital", note1),
+        ("Note 2: Reserves and Surplus", note2),
+        # Add other notes like note3, note4,... in similar fashion here.
+    ]
 
-    # For brevity, the remaining notes were constructed in your original script and can be adapted similarly.
+    totals = {
+        "total_assets_cy": total_assets_cy,
+        "total_equity_liab_cy": total_equity_liab_cy,
+        "total_rev_cy": total_rev_cy,
+        "pat_cy": pat_cy,
+        "eps_cy": eps_cy,
+        "eps_py": eps_py
+    }
 
     return {
         "balance_sheet": bs_out,
         "profit_loss": pl_out,
-        "notes": [
-            ("Note 1: Share Capital", note1),
-            ("Note 2: Reserves and Surplus", note2),
-            # Add other notes here as tuples (label, dataframe)
-        ],
-        "totals": {
-            "total_assets_cy": total_assets_cy,
-            "total_equity_liab_cy": total_equity_liab_cy,
-            "total_rev_cy": total_rev_cy,
-            "pat_cy": pat_cy,
-            "eps_cy": eps_cy,
-            "eps_py": eps_py
-        }
+        "notes": notes,
+        "totals": totals
     }
-
 
 # ===============================
 # Streamlit App Main
@@ -528,8 +524,7 @@ def main():
             with pd.ExcelWriter(output, engine='openpyxl') as writer:
                 results["balance_sheet"].to_excel(writer, sheet_name="Balance Sheet", index=False, header=False)
                 results["profit_loss"].to_excel(writer, sheet_name="Profit and Loss", index=False, header=False)
-                # Write notes in separate sheets; here, only notes 1 and 2 for example:
-                write_notes_with_labels(writer, "Notes 1-2", results["notes"])
+                write_notes_with_labels(writer, "Notes", results["notes"])
 
             output.seek(0)
             st.download_button(
@@ -541,9 +536,9 @@ def main():
 
         except Exception as e:
             st.error(f"Error processing file: {e}")
+
     else:
         st.info("Awaiting file upload.")
-
 
 if __name__ == "__main__":
     main()
