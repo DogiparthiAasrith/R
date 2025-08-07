@@ -812,6 +812,8 @@ def process_financials(bs_df, pl_df):
     return bs_out, pl_out, notes, totals
 
 # ---------------------- Streamlit UI code below -------------------------
+# Placeholders: you must define read_bs_and_pl, process_financials, write_notes_with_labels at the top of your script
+
 st.set_page_config(page_title="AI Financial Mapping Tool", layout="wide")
 with st.sidebar:
     st.markdown(
@@ -856,7 +858,7 @@ if uploaded_file:
     try:
         input_file = io.BytesIO(uploaded_file.read())
         bs_df, pl_df = read_bs_and_pl(input_file)
-        bs_out, pl_out, notes, totals = process_financials(bs_df, pl_df)  # Your full logic used here
+        bs_out, pl_out, notes, totals = process_financials(bs_df, pl_df)
 
         # --------- VISUAL DASHBOARD TAB -----------
         with tabs[1]:
@@ -912,7 +914,6 @@ if uploaded_file:
 
             st.markdown("")
 
-            # ----- Two Columns (Trends & Distribution) -----
             left, right = st.columns([2,1], gap="large")
 
             with left:
@@ -1004,6 +1005,35 @@ if uploaded_file:
 
             st.caption("💡 Use this dashboard for a quick, at-a-glance insight into company performance and financial health.")
 
+            # --- DASHBOARD DOWNLOAD BUTTON ---
+            # Prepare dashboard metrics and data to be downloaded
+            output = io.BytesIO()
+            with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                # Main KPIs
+                pd.DataFrame({
+                    'Metric': ['Total Revenue','Net Profit','Total Assets','Debt-to-Equity'],
+                    'Value': [cy, pat_cy, assets_cy, dteq],
+                    '% Change': [rev_chg, pat_chg, assets_chg, de_chg]
+                }).to_excel(writer, sheet_name="KPIs", index=False)
+                # Revenue trend
+                rev_trend_df.to_excel(writer, sheet_name="Revenue Trends")
+                # Profit margin trend
+                pm_df.to_excel(writer, sheet_name="Profit Margin Trend")
+                # Asset Distribution
+                pd.DataFrame({'Asset Type':labs, 'Amount':distributions}).to_excel(writer, sheet_name="Asset Distribution", index=False)
+                # Key Ratios
+                pd.DataFrame({
+                    'Ratio': ['Current Ratio','Profit Margin','ROA','Debt-to-Equity'],
+                    'Value': [current_ratio, profit_margin, roa, dteq]
+                }).to_excel(writer, sheet_name="Key Ratios", index=False)
+            output.seek(0)
+            st.download_button(
+                label="⬇️ Download Financial Dashboard Excel",
+                data=output,
+                file_name="Financial_Dashboard.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
+
             # --- Style tweaks for KPI card look and positive/negative coloring ---
             st.markdown("""
             <style>
@@ -1087,3 +1117,4 @@ st.markdown(
     """,
     unsafe_allow_html=True
 )
+
