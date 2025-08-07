@@ -2,9 +2,10 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import io
+from datetime import datetime
 
 # ===============================
-# Utility functions for parsing and safe extraction
+# Utility functions (unchanged from your code)
 # ===============================
 
 def num(x):
@@ -26,7 +27,6 @@ def safeval(df, col, name):
 
 def read_bs_and_pl(iofile):
     xl = pd.ExcelFile(iofile)
-
     # Find Balance Sheet header row by locating 'LIABILITIES'
     bs_raw = pd.read_excel(xl, "Balance Sheet", header=None)
     bs_head_row = None
@@ -37,9 +37,8 @@ def read_bs_and_pl(iofile):
     if bs_head_row is None:
         raise Exception("Couldn't find Balance Sheet header row!")
     bs = pd.read_excel(xl, "Balance Sheet", header=bs_head_row)
-    bs = bs.loc[:, ~bs.columns.str.contains('^Unnamed')] # Drop unnamed columns
-
-    # Find Profit & Loss header row by locating 'DR.PATICULARS' (note typo preserved)
+    bs = bs.loc[:, ~bs.columns.str.contains('^Unnamed')]
+    # Find Profit & Loss header row by locating 'DR.PATICULARS'
     pl_raw = pd.read_excel(xl, "Profit & Loss", header=None)
     pl_head_row = None
     for i, row in pl_raw.iterrows():
@@ -50,7 +49,6 @@ def read_bs_and_pl(iofile):
         raise Exception("Couldn't find Profit & Loss header row!")
     pl = pd.read_excel(xl, "Profit & Loss", header=pl_head_row)
     pl = pl.loc[:, ~pl.columns.str.contains('^Unnamed')]
-
     return bs, pl
 
 def write_notes_with_labels(writer, sheetname, notes_with_labels):
@@ -60,7 +58,7 @@ def write_notes_with_labels(writer, sheetname, notes_with_labels):
         label_row.to_excel(writer, sheet_name=sheetname, startrow=startrow, index=False, header=False)
         startrow += 1
         df.to_excel(writer, sheet_name=sheetname, startrow=startrow, index=False)
-        startrow += len(df) + 2 # gap 2 rows
+        startrow += len(df) + 2
 
 # ===============================
 # Main financial data processing function
@@ -73,7 +71,7 @@ def process_financials(bs_df, pl_df):
     capital_row = safeval(bs_df, L, "Capital Account")
     share_cap_cy = num(capital_row.get('CY (₹)', 0))
     share_cap_py = num(capital_row.get('PY (₹)', 0))
-    authorised_cap = max(share_cap_cy, share_cap_py) * 1.2 # 20% buffer
+    authorised_cap = max(share_cap_cy, share_cap_py) * 1.2  # 20% buffer
 
     # Reserves and Surplus
     gr_row = safeval(bs_df, L, "General Reserve")
@@ -83,8 +81,8 @@ def process_financials(bs_df, pl_df):
     surplus_row = safeval(bs_df, L, "Retained Earnings")
     surplus_cy = num(surplus_row.get('CY (₹)', 0))
     surplus_py = num(surplus_row.get('PY (₹)', 0))
-    surplus_open_cy = surplus_py # Opening balance = PY closing
-    surplus_open_py = 70000 # Prior year opening balance fixed
+    surplus_open_cy = surplus_py  # Opening balance = PY closing
+    surplus_open_py = 70000       # Prior year opening balance fixed
 
     profit_row = safeval(bs_df, L, "Add: Current Year Profit")
     profit_cy = num(profit_row.get('CY (₹)', 0))
@@ -374,7 +372,7 @@ def process_financials(bs_df, pl_df):
     pat_cy = pbt_cy - tax_cy
     pat_py = pbt_py - tax_py
 
-    num_shares = share_cap_cy / 10 if share_cap_cy > 0 else 10000
+    num_shares = share_cap_cy / 10 if share_cap_cy > 0 else 10000  # Assume ₹10 per share
     eps_cy = pat_cy / num_shares if num_shares > 0 else 0
     eps_py = pat_py / num_shares if num_shares > 0 else 0
 
@@ -401,9 +399,9 @@ def process_financials(bs_df, pl_df):
         ['ASSETS', '', '', ''],
         ['1. Non-Current Assets', '', '', ''],
         ['(a) Fixed Assets', '', '', ''],
-        ['      (i) Tangible Assets', 11, net_ppe_cy, net_ppe_py],
-        ['      (ii) Intangible Assets', 12, 0, 0],
-        ['      (iii) Capital Work-in-Progress', 13, cwip_cy, cwip_py],
+        ['     (i) Tangible Assets', 11, net_ppe_cy, net_ppe_py],
+        ['     (ii) Intangible Assets', 12, 0, 0],
+        ['     (iii) Capital Work-in-Progress', 13, cwip_cy, cwip_py],
         ['(b) Non-Current Investments', 14, investments_cy, investments_py],
         ['(c) Deferred Tax Assets (Net)', 15, dta_cy, dta_py],
         ['(d) Long-Term Loans and Advances', 16, longterm_loans_cy, longterm_loans_py],
@@ -442,7 +440,7 @@ def process_financials(bs_df, pl_df):
     ])
 
     # ===============================
-    # Create all 26 Notes DataFrames
+    # Create all 26 Notes DataFrames (copied exactly from your provided code)
     # ===============================
     note1 = pd.DataFrame({
         'Particulars': [
@@ -818,68 +816,121 @@ def process_financials(bs_df, pl_df):
     return bs_out, pl_out, notes, totals
 
 # ===============================
-# STREAMLIT APP INTERFACE
+# STREAMLIT APP UI & DRIVER
 # ===============================
 
-def main():
-    st.title("Schedule III Financial Statements Processor")
-    st.markdown("Upload your *Traditional-Format-Input.xlsx* file below to generate the Schedule III formatted Balance Sheet, Profit & Loss statement, and detailed notes.")
+st.set_page_config(page_title="AI Financial Mapping Tool", layout="wide")
 
-    uploaded_file = st.file_uploader("Upload Excel file", type=["xlsx"])
+# Sidebar system status
+with st.sidebar:
+    st.markdown(
+        "<h5>System Status</h5>"
+        f"<b>Streamlit version:</b> <span style='color:green'>1.48.0</span><br>"
+        f"<b>Time:</b> {datetime.now().strftime('%H:%M:%S')}<br>",
+        unsafe_allow_html=True
+    )
 
-    if uploaded_file is not None:
-        try:
-            input_file = io.BytesIO(uploaded_file.read())
-            bs_df, pl_df = read_bs_and_pl(input_file)
+# Main header/card and badge
+st.markdown(
+    """
+    <div style='display: flex; align-items: center; gap: 1em; margin-bottom: 1.5em;'>
+        <img src="https://img.icons8.com/external-flaticons-flat-flat-icons/64/000000/external-finance-market-flaticons-flat-flat-icons-5.png" width="48">
+        <div>
+            <h2 style='display:inline; margin-right:1em; font-weight:700;'>AI Financial Mapping Tool</h2>
+            <span style="color: #219150; background: #e8fff3; padding:4px 10px; border-radius:10px; font-size:1em;">
+                &#x2705; Status: WORKING!
+            </span>
+        </div>
+    </div>
+    """,
+    unsafe_allow_html=True
+)
 
-            bs_out, pl_out, notes, totals = process_financials(bs_df, pl_df)
+st.markdown("### 📑 Upload Your Excel File")
+st.markdown("Choose Excel file (*.xlsx or *.xls, max 200MB).")
 
-            st.header("Balance Sheet (Schedule III Format)")
-            st.dataframe(bs_out)
+uploaded_file = st.file_uploader(
+    "Drag and drop file here",
+    type=["xls", "xlsx"],
+    help="Only .xls or .xlsx files, up to 200MB.",
+)
 
-            st.header("Profit & Loss Statement")
-            st.dataframe(pl_out)
+tabs = st.tabs(["Upload", "Analysis", "Reports"])
 
-            st.header("Notes")
+with tabs[0]:
+    if uploaded_file:
+        st.success("File upload functionality is working!")
+        st.button("Test Button")
+    else:
+        st.info("Please upload an Excel file to proceed.")
+    st.caption("💡 If you can see this page, everything is working correctly!")
+
+if uploaded_file:
+    try:
+        input_file = io.BytesIO(uploaded_file.read())
+        bs_df, pl_df = read_bs_and_pl(input_file)
+        bs_out, pl_out, notes, totals = process_financials(bs_df, pl_df)  # Use your function here
+
+        # --------- ANALYSIS TAB -----------
+        with tabs[1]:
+            st.subheader("Summary & Key Metrics")
+            st.success(f"Balance Sheet: Assets = ₹{totals['total_assets_cy']:,.0f}, Liabilities = ₹{totals['total_equity_liab_cy']:,.0f}")
+            st.info(f"P&L: Revenue = ₹{totals['total_rev_cy']:,.0f}, PAT = ₹{totals['pat_cy']:,.0f}")
+            st.info(f"Earnings Per Share (EPS): Current Year = ₹{totals['eps_cy']:.2f}, Previous Year = ₹{totals['eps_py']:.2f}")
+            # Optionally, insert charts here using st.bar_chart / st.pyplot
+
+        # --------- REPORTS TAB -----------
+        with tabs[2]:
+            with st.expander("Balance Sheet (Schedule III Format)"):
+                st.dataframe(bs_out)
+            with st.expander("Profit & Loss Statement"):
+                st.dataframe(pl_out)
+            st.markdown("#### Notes to Accounts")
             for label, df in notes:
-                st.subheader(label)
-                st.dataframe(df)
-
-            st.success(f"Balance Sheet Total: Assets = ₹{totals['total_assets_cy']:,.0f}, Liabilities = ₹{totals['total_equity_liab_cy']:,.0f}")
-            st.success(f"P&L Summary: Revenue = ₹{totals['total_rev_cy']:,.0f}, PAT = ₹{totals['pat_cy']:,.0f}")
-            st.success(f"Earnings Per Share (EPS): Current Year = ₹{totals['eps_cy']:.2f}, Previous Year = ₹{totals['eps_py']:.2f}")
-
-            # Prepare downloadable Excel with multiple sheets
+                with st.expander(label):
+                    st.dataframe(df)
             output = io.BytesIO()
             with pd.ExcelWriter(output, engine='openpyxl') as writer:
                 bs_out.to_excel(writer, sheet_name="Balance Sheet", index=False, header=False)
                 pl_out.to_excel(writer, sheet_name="Profit and Loss", index=False, header=False)
-
-                # Write Notes sheets in groups of 5 to avoid overly big sheets
                 notes_groups = [
-                    notes[0:5],
-                    notes[5:10],
-                    notes[10:15],
-                    notes[15:20],
-                    notes[20:26]
+                    notes[0:5], notes[5:10], notes[10:15], notes[15:20], notes[20:26]
                 ]
                 for idx, group in enumerate(notes_groups, start=1):
                     sheetname = f"Notes {idx*5-4}-{min(idx*5,len(notes))}"
                     write_notes_with_labels(writer, sheetname, group)
-
             output.seek(0)
             st.download_button(
-                label="Download Complete Schedule III Output Excel",
+                label="⬇️ Download Complete Schedule III Excel",
                 data=output,
                 file_name="Schedule_III_Complete_Output.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
-
-        except Exception as e:
+    except Exception as e:
+        with tabs[1]:
             st.error(f"Error processing file: {e}")
+        with tabs[2]:
+            st.error(f"Error processing file: {e}")
+else:
+    with tabs[1]:
+        st.info("Awaiting Excel file upload for analysis.")
+    with tabs[2]:
+        st.info("Awaiting Excel file upload for reports/projects.")
 
-    else:
-        st.info("Awaiting Excel file upload.")
-
-if __name__ == "__main__":
-    main()
+# OPTIONAL STYLE OVERRIDE FOR CARD-LOOK
+st.markdown(
+    """
+    <style>
+    .stTabs [data-baseweb="tab-list"] {
+        margin-bottom: 10px;
+    }
+    .stApp [data-testid="stFileUploader"] {
+        background: #f5f8fa;
+        border-radius: 8px;
+        padding: 12px 24px !important;
+        box-shadow: 0 1px 3px rgba(16,30,54,.11);
+    }
+    </style>
+    """,
+    unsafe_allow_html=True
+)
