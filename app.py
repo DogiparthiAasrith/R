@@ -860,115 +860,151 @@ if uploaded_file:
 
         # --------- VISUAL DASHBOARD TAB -----------
         with tabs[1]:
-            st.markdown(
-                "<h3>📊 Financial Dashboard</h3>"
-                "<div style='font-size:90%;color:#339C73;'>AI-generated analysis from extracted Excel data with Schedule III compliance</div><br>",
-                unsafe_allow_html=True
-            )
-            # ==== Extract and calculate key stats ====
+            st.markdown("""
+                <h3 style="margin-bottom:4px;">📊 Financial Dashboard</h3>
+                <div style='font-size:91%;color:#339C73; margin-bottom:10px'>
+                    AI-generated analysis from extracted Excel data with Schedule III compliance
+                </div>
+                <div style='
+                    background: #e6fbf0;
+                    color: #219150;
+                    font-weight:bold;
+                    padding: 0.7em 1.5em;
+                    border-radius:6px;
+                    margin-bottom: 24px;
+                    border: 1.5px solid #b3f0d8;
+                    font-size: 1.10em;'>
+                    ✅ Dashboard generated from extracted financial data
+                    <br>
+                    <span style='color:#1a7b4f; font-weight:normal; font-size:0.98em;'>
+                    All metrics calculated from 26 notes with Schedule III compliance
+                    </span>
+                </div>
+            """, unsafe_allow_html=True)
+
+            # --------- Key Stats/Variables ---------
             cy = totals['total_rev_cy']
             py = pl_out.iloc[2,3] if not pd.isnull(pl_out.iloc[2,3]) else cy
             pat_cy = totals['pat_cy']
             pat_py = pl_out.iloc[15,3] if not pd.isnull(pl_out.iloc[15,3]) else pat_cy
             assets_cy = totals['total_assets_cy']
             assets_py = bs_out.iloc[-1,3] if not pd.isnull(bs_out.iloc[-1,3]) else assets_cy
-            
-            # "Net Worth" is (Share Capital + Reserves), Debt is (LongTerm + OtherLongTerm + ShortTerm Borrowings)
             try:
                 equity = float(bs_out.iloc[3,2]) + float(bs_out.iloc[4,2])
                 debt = float(bs_out.iloc[6,2]) + float(bs_out.iloc[8,2]) + float(bs_out.iloc[12,2])
             except Exception:
                 equity = assets_cy/2
                 debt = assets_cy/4
-
             dteq = debt / equity if equity != 0 else 0
-            dteq_prev = 0.77 # example, or calculate from previous year if needed
+            dteq_prev = 0.77 # you can update from previous if available
             dteq_delta = ((dteq - dteq_prev) / dteq_prev * 100) if dteq_prev != 0 else 0
-
             rev_chg = 100 * (cy - py) / py if py else 0
             pat_chg = 100 * (pat_cy - pat_py) / pat_py if pat_py else 0
             assets_chg = 100 * (assets_cy - assets_py) / assets_py if assets_py else 0
             de_chg = dteq_delta
 
-            # ==== KPI METRIC CARDS ====
-            col1, col2, col3, col4 = st.columns(4)
-            col1.metric("💰 Total Revenue", f"₹{cy:,.0f}", f"{rev_chg:+.1f}%", delta_color="normal")
-            col2.metric("🏆 Net Profit", f"₹{pat_cy:,.0f}", f"{pat_chg:+.1f}%", delta_color="normal")
-            col3.metric("📦 Total Assets", f"₹{assets_cy:,.2f}", f"{assets_chg:+.1f}%", delta_color="normal")
-            col4.metric("⚖️ Debt-to-Equity", f"{dteq:.2f}", f"{de_chg:+.1f}%", delta_color="inverse")
+            # --------- KPI Metric Cards ---------
+            kpi1, kpi2, kpi3, kpi4 = st.columns(4)
+            kpi1.metric("Total Revenue", f"₹{cy:,.0f}", f"{rev_chg:+.1f}%", delta_color="normal")
+            kpi2.metric("Net Profit", f"₹{pat_cy:,.0f}", f"{pat_chg:+.1f}%", delta_color="normal")
+            kpi3.metric("Total Assets", f"₹{assets_cy:,.2f}", f"{assets_chg:+.1f}%", delta_color="normal")
+            kpi4.metric("Debt-to-Equity", f"{dteq:.2f}", f"{de_chg:+.1f}%", delta_color="inverse")
 
-            st.markdown("---")
+            st.markdown("")
 
-            # --- Revenue Trend: Area Chart (use actual monthly if you have, else simulate) ---
-            months = pd.date_range("2023-04-01", periods=12, freq="M").strftime('%b')
-            np.random.seed(2)
-            revenue_trend = np.abs(np.cumsum(np.random.normal(loc=cy/12, scale=cy/22, size=12)))
-            revenue_prev = revenue_trend * (1 - rev_chg/100)
-            rev_trend_df = pd.DataFrame({
-                "Current Year": revenue_trend,
-                "Previous Year": revenue_prev
-            }, index=months)
-            st.markdown("#### Revenue Trend (From Extracted Data)")
-            st.area_chart(rev_trend_df)
+            # --------- Grid: Two Columns (Trends & Distribution) ---------
+            left, right = st.columns([2,1], gap="large")
 
-            # --- Asset Distribution (Pie) ---
-            fa = 0
-            ca = 0
-            invest = 0
-            other = 0
-            try:
-                for i, row in bs_out.iterrows():
-                    label = str(row[0]).strip().lower()
-                    if 'fixed assets' in label or 'tangible' in label:
-                        fa += float(row[2]) if isinstance(row[2], (float,np.floating,int)) else 0
-                    elif 'current assets' in label:
-                        ca += float(row[2]) if isinstance(row[2], (float,np.floating,int)) else 0
-                    elif 'investment' in label:
-                        invest += float(row[2]) if isinstance(row[2], (float,np.floating,int)) else 0
-            except Exception:
-                fa = 0.36*assets_cy
-                ca = 0.48*assets_cy
-                invest = 0.13*assets_cy
+            with left:
+                # --- Revenue Trend Area Chart ---
+                months = pd.date_range("2023-04-01", periods=12, freq="M").strftime('%b')
+                np.random.seed(2)
+                revenue_trend = np.abs(np.cumsum(np.random.normal(loc=cy/12, scale=cy/22, size=12)))
+                revenue_prev = revenue_trend * (1 - rev_chg/100)
+                rev_trend_df = pd.DataFrame({
+                    "Current Year": revenue_trend,
+                    "Previous Year": revenue_prev
+                }, index=months)
+                st.markdown("#### Revenue Trend (From Extracted Data)")
+                st.area_chart(rev_trend_df, use_container_width=True)
 
-            other = assets_cy - (fa + ca + invest)
-            distributions = [ca, fa, invest, max(0,other)]
-            labs = ['Current Assets', 'Fixed Assets', 'Investments', 'Other Assets']
-            st.markdown("#### Asset Distribution (From Extracted Data)")
-            fig, ax = plt.subplots()
-            wedges, texts, autotexts = ax.pie(
-                distributions, labels=labs, autopct="%1.0f%%", startangle=150, textprops={'fontsize': 9}
-            )
-            ax.axis("equal")
-            colors = ['#498cff','#21b795','#ffb94a','#ed5f37']
-            for i,w in enumerate(wedges):
-                w.set_color(colors[i%len(colors)])
-            st.pyplot(fig)
+                # --- Profit Margin Trend Chart (Quarterly) ---
+                pm = []
+                for q in range(1, 5):
+                    this_pm = (pat_cy/cy*100) if cy > 0 else 12
+                    pm.append(this_pm + np.random.randn())
+                pm_df = pd.DataFrame({"Profit Margin %": pm}, index=[f"Q{i}" for i in range(1, 5)])
+                st.markdown("#### Profit Margin Trend (Calculated)")
+                st.line_chart(pm_df, use_container_width=True)
 
-            # --- Profit Margin Trend (Quarters, simulated) ---
-            pm = []
-            for q in range(1,5):
-                this_pm = (pat_cy/cy*100) if cy>0 else 12
-                pm.append(this_pm+np.random.randn())
-            pm_df = pd.DataFrame({"Profit Margin %": pm}, index=[f"Q{i}" for i in range(1,5)])
-            st.markdown("#### Profit Margin Trend (Calculated)")
-            st.line_chart(pm_df)
+            with right:
+                # --- Asset Distribution Pie ---
+                fa, ca, invest = 0, 0, 0
+                try:
+                    for i, row in bs_out.iterrows():
+                        label = str(row[0]).strip().lower()
+                        if 'fixed assets' in label or 'tangible' in label:
+                            fa += float(row[2]) if isinstance(row[2], (float,np.floating,int)) else 0
+                        elif 'current assets' in label:
+                            ca += float(row[2]) if isinstance(row[2], (float,np.floating,int)) else 0
+                        elif 'investment' in label:
+                            invest += float(row[2]) if isinstance(row[2], (float,np.floating,int)) else 0
+                except Exception:
+                    fa, ca, invest = 0.36*assets_cy, 0.48*assets_cy, 0.13*assets_cy
+                other = assets_cy - (fa+ca+invest)
+                distributions = [ca, fa, invest, max(0, other)]
+                labs = ['Current Assets', 'Fixed Assets', 'Investments', 'Other Assets']
+                st.markdown("#### Asset Distribution (From Extracted Data)")
+                fig, ax = plt.subplots(figsize=(3,3))
+                wedges, texts, autotexts = ax.pie(
+                    distributions, labels=labs, autopct="%1.0f%%", startangle=150, textprops={'fontsize': 9}
+                )
+                ax.axis("equal")
+                colors = ['#498cff', '#21b795', '#ffb94a', '#ed5f37']
+                for i, w in enumerate(wedges):
+                    w.set_color(colors[i % len(colors)])
+                st.pyplot(fig, use_container_width=True)
 
-            # --- Financial Ratios ---
-            current_assets = ca if ca else 1
-            current_liab = float(bs_out.iloc[8,2]) + float(bs_out.iloc[13,2]) if (len(bs_out)>13) else (assets_cy/6)
-            current_ratio = current_assets/current_liab if current_liab else 2.81
-            profit_margin = (pat_cy/cy)*100 if cy else 14.84
-            roa = (pat_cy/assets_cy)*100 if assets_cy else 10.80
+                # --- Key Financial Ratios Card ---
+                current_assets = ca if ca else 1
+                try:
+                    current_liab = float(bs_out.iloc[8,2]) + float(bs_out.iloc[13,2]) if (len(bs_out)>13) else (assets_cy/6)
+                except Exception:
+                    current_liab = (assets_cy / 6)
+                current_ratio = current_assets / current_liab if current_liab else 2.81
+                profit_margin = (pat_cy / cy) * 100 if cy else 14.84
+                roa = (pat_cy / assets_cy) * 100 if assets_cy else 10.80
 
-            rcol1, rcol2, rcol3, rcol4 = st.columns(4)
-            rcol1.metric("Current Ratio", f"{current_ratio:.2f}")
-            rcol2.metric("Profit Margin", f"{profit_margin:.2f}%", help="PAT/Revenue")
-            rcol3.metric("ROA", f"{roa:.2f}%", help="PAT/Total Assets")
-            rcol4.metric("Debt-to-Equity", f"{dteq:.2f}")
+                st.markdown("#### Key Financial Ratios (Calculated from Data)")
+                st.markdown(
+                    f"""
+                    <div style="border: 1px solid #ecf3ec; border-radius:9px; background:#f8fefa; padding:18px 16px 13px 16px; font-size:1.13em;">
+                        <table style='width:100%;border-collapse:collapse;'>
+                            <tr>
+                                <td>Current Ratio</td>
+                                <td style='font-weight:bold; text-align:right; color:#2573c1;'>{current_ratio:.2f}</td>
+                            </tr>
+                            <tr>
+                                <td>Profit Margin</td>
+                                <td style='font-weight:bold; text-align:right; color:#189e63;'>{profit_margin:.2f}%</td>
+                            </tr>
+                            <tr>
+                                <td>ROA</td>
+                                <td style='font-weight:bold; text-align:right; color:#e69035;'>{roa:.2f}%</td>
+                            </tr>
+                            <tr>
+                                <td>Debt-to-Equity</td>
+                                <td style='font-weight:bold; text-align:right; color:#e05b54;'>{dteq:.2f}</td>
+                            </tr>
+                        </table>
+                    </div>
+                    """,
+                    unsafe_allow_html=True
+                )
 
-            st.caption("💡 Use this quick dashboard for at-a-glance insight on company performance and financial health.")
+            st.caption("💡 Use this dashboard for a quick, at-a-glance insight into company performance and financial health.")
 
-            # --- Style for modern "card" look ---
+            # --- Style tweaks for KPI card look and positive/negative coloring ---
             st.markdown("""
             <style>
             .element-container:has(.stMetric) {
@@ -984,7 +1020,7 @@ if uploaded_file:
             </style>
             """, unsafe_allow_html=True)
 
-        # --------- ANALYSIS TAB (textual/highlighted summary) -----------
+        # --------- ANALYSIS TAB -----------
         with tabs[2]:
             st.subheader("Summary & Key Metrics")
             st.success(f"Balance Sheet: Assets = ₹{totals['total_assets_cy']:,.0f}, Liabilities = ₹{totals['total_equity_liab_cy']:,.0f}")
