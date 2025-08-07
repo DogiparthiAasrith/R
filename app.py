@@ -883,20 +883,21 @@ if uploaded_file:
     """, unsafe_allow_html=True)
 
     # === Extract/calculate KPI Metrics ===
-    cy = totals['total_rev_cy']
-    py = pl_out.iloc[2,3] if not pd.isnull(pl_out.iloc[2,3]) else cy
-    pat_cy = totals['pat_cy']
-    pat_py = pl_out.iloc[15,3] if not pd.isnull(pl_out.iloc[15,3]) else pat_cy
-    assets_cy = totals['total_assets_cy']
-    assets_py = bs_out.iloc[-1,3] if not pd.isnull(bs_out.iloc[-1,3]) else assets_cy
+    # Extract/calculate KPI Metrics
+cy = totals['total_rev_cy']
+py = pl_out.iloc[2,3] if not pd.isnull(pl_out.iloc[2,3]) else cy
+pat_cy = totals['pat_cy']
+pat_py = pl_out.iloc[15,3] if not pd.isnull(pl_out.iloc[15,3]) else pat_cy
+assets_cy = totals['total_assets_cy']
+assets_py = bs_out.iloc[-1,3] if not pd.isnull(bs_out.iloc[-1,3]) else assets_cy
 
-    # Net Worth and Debt
-    try:
-        equity = float(bs_out.iloc[3,2]) + float(bs_out.iloc[4,2])
-        debt = float(bs_out.iloc[6,2]) + float(bs_out.iloc[8,2]) + float(bs_out.iloc[12,2])
-    except Exception:
-        equity = assets_cy/2
-        debt = assets_cy/4
+try:
+    equity = float(bs_out.iloc[3,2]) + float(bs_out.iloc[4,2])
+    debt = float(bs_out.iloc[6,2]) + float(bs_out.iloc[8,2]) + float(bs_out.iloc[12,2])
+except Exception:
+    equity = assets_cy/2
+    debt = assets_cy/4
+
 
     dteq = debt / equity if equity != 0 else 0
     dteq_prev = 0.77  # update as per actuals if available
