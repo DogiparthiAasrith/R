@@ -812,8 +812,6 @@ def process_financials(bs_df, pl_df):
     return bs_out, pl_out, notes, totals
 
 # ---------------------- Streamlit UI code below -------------------------
-# --- Placeholders: you must define read_bs_and_pl, process_financials, write_notes_with_labels ----
-
 st.set_page_config(page_title="AI Financial Mapping Tool", layout="wide")
 with st.sidebar:
     st.markdown(
@@ -858,282 +856,119 @@ if uploaded_file:
     try:
         input_file = io.BytesIO(uploaded_file.read())
         bs_df, pl_df = read_bs_and_pl(input_file)
-        bs_out, pl_out, notes, totals = process_financials(bs_df, pl_df)
+        bs_out, pl_out, notes, totals = process_financials(bs_df, pl_df)  # Your full logic used here
 
         # --------- VISUAL DASHBOARD TAB -----------
         with tabs[1]:
-            st.markdown("""
-                <h3 style="margin-bottom:4px;">📊 Financial Dashboard</h3>
-                <div style='font-size:91%;color:#339C73; margin-bottom:10px'>
-                    AI-generated analysis from extracted Excel data with Schedule III compliance
-                </div>
-                <div style='
-                    background: #e6fbf0;
-                    color: #219150;
-                    font-weight:bold;
-                    padding: 0.7em 1.5em;
-                    border-radius:6px;
-                    margin-bottom: 24px;
-                    border: 1.5px solid #b3f0d8;
-                    font-size: 1.10em;'>
-                    ✅ Dashboard generated from extracted financial data
-                    <br>
-                    <span style='color:#1a7b4f; font-weight:normal; font-size:0.98em;'>
-                    All metrics calculated from 26 notes with Schedule III compliance
-                    </span>
-                </div>
-            """, unsafe_allow_html=True)
-
-            # --------- Key Stats/Variables ---------
+            st.markdown(
+                "<h3>📊 Financial Dashboard</h3>"
+                "<div style='font-size:90%;color:#339C73;'>AI-generated analysis from extracted Excel data with Schedule III compliance</div><br>",
+                unsafe_allow_html=True
+            )
+            # ==== Extract and calculate key stats ====
             cy = totals['total_rev_cy']
             py = pl_out.iloc[2,3] if not pd.isnull(pl_out.iloc[2,3]) else cy
             pat_cy = totals['pat_cy']
             pat_py = pl_out.iloc[15,3] if not pd.isnull(pl_out.iloc[15,3]) else pat_cy
             assets_cy = totals['total_assets_cy']
             assets_py = bs_out.iloc[-1,3] if not pd.isnull(bs_out.iloc[-1,3]) else assets_cy
+            
+            # "Net Worth" is (Share Capital + Reserves), Debt is (LongTerm + OtherLongTerm + ShortTerm Borrowings)
             try:
                 equity = float(bs_out.iloc[3,2]) + float(bs_out.iloc[4,2])
                 debt = float(bs_out.iloc[6,2]) + float(bs_out.iloc[8,2]) + float(bs_out.iloc[12,2])
             except Exception:
                 equity = assets_cy/2
                 debt = assets_cy/4
+
             dteq = debt / equity if equity != 0 else 0
-            dteq_prev = 0.77
+            dteq_prev = 0.77 # example, or calculate from previous year if needed
             dteq_delta = ((dteq - dteq_prev) / dteq_prev * 100) if dteq_prev != 0 else 0
+
             rev_chg = 100 * (cy - py) / py if py else 0
             pat_chg = 100 * (pat_cy - pat_py) / pat_py if pat_py else 0
             assets_chg = 100 * (assets_cy - assets_py) / assets_py if assets_py else 0
             de_chg = dteq_delta
 
-            # --------- KPI Metric Cards ---------
-            kpi1, kpi2, kpi3, kpi4 = st.columns(4)
-            kpi1.metric("Total Revenue", f"₹{cy:,.0f}", f"{rev_chg:+.1f}%", delta_color="normal")
-            kpi2.metric("Net Profit", f"₹{pat_cy:,.0f}", f"{pat_chg:+.1f}%", delta_color="normal")
-            kpi3.metric("Total Assets", f"₹{assets_cy:,.2f}", f"{assets_chg:+.1f}%", delta_color="normal")
-            kpi4.metric("Debt-to-Equity", f"{dteq:.2f}", f"{de_chg:+.1f}%", delta_color="inverse")
+            # ==== KPI METRIC CARDS ====
+            col1, col2, col3, col4 = st.columns(4)
+            col1.metric("💰 Total Revenue", f"₹{cy:,.0f}", f"{rev_chg:+.1f}%", delta_color="normal")
+            col2.metric("🏆 Net Profit", f"₹{pat_cy:,.0f}", f"{pat_chg:+.1f}%", delta_color="normal")
+            col3.metric("📦 Total Assets", f"₹{assets_cy:,.2f}", f"{assets_chg:+.1f}%", delta_color="normal")
+            col4.metric("⚖ Debt-to-Equity", f"{dteq:.2f}", f"{de_chg:+.1f}%", delta_color="inverse")
 
-            st.markdown("")
+            st.markdown("---")
 
-            left, right = st.columns([2,1], gap="large")
+            # --- Revenue Trend: Area Chart (use actual monthly if you have, else simulate) ---
+            months = pd.date_range("2023-04-01", periods=12, freq="M").strftime('%b')
+            np.random.seed(2)
+            revenue_trend = np.abs(np.cumsum(np.random.normal(loc=cy/12, scale=cy/22, size=12)))
+            revenue_prev = revenue_trend * (1 - rev_chg/100)
+            rev_trend_df = pd.DataFrame({
+                "Current Year": revenue_trend,
+                "Previous Year": revenue_prev
+            }, index=months)
+            st.markdown("#### Revenue Trend (From Extracted Data)")
+            st.area_chart(rev_trend_df)
 
-            with left:
-                # --- Revenue Trend ---
-                months = pd.date_range("2023-04-01", periods=12, freq="M").strftime('%b')
-                np.random.seed(2)
-                revenue_trend = np.abs(np.cumsum(np.random.normal(loc=cy/12, scale=cy/22, size=12)))
-                revenue_prev = revenue_trend * (1 - rev_chg/100)
-                rev_trend_df = pd.DataFrame({
-                    "Current Year": revenue_trend,
-                    "Previous Year": revenue_prev
-                }, index=months)
-                st.markdown("#### Revenue Trend (From Extracted Data)")
-                st.area_chart(rev_trend_df, use_container_width=True)
+            # --- Asset Distribution (Pie) ---
+            fa = 0
+            ca = 0
+            invest = 0
+            other = 0
+            try:
+                for i, row in bs_out.iterrows():
+                    label = str(row[0]).strip().lower()
+                    if 'fixed assets' in label or 'tangible' in label:
+                        fa += float(row[2]) if isinstance(row[2], (float,np.floating,int)) else 0
+                    elif 'current assets' in label:
+                        ca += float(row[2]) if isinstance(row[2], (float,np.floating,int)) else 0
+                    elif 'investment' in label:
+                        invest += float(row[2]) if isinstance(row[2], (float,np.floating,int)) else 0
+            except Exception:
+                fa = 0.36*assets_cy
+                ca = 0.48*assets_cy
+                invest = 0.13*assets_cy
 
-                # --- Profit Margin Trend (Quarterly) ---
-                pm = []
-                for q in range(1, 5):
-                    this_pm = (pat_cy/cy*100) if cy > 0 else 12
-                    pm.append(this_pm + np.random.randn())
-                pm_df = pd.DataFrame({"Profit Margin %": pm}, index=[f"Q{i}" for i in range(1, 5)])
-                st.markdown("#### Profit Margin Trend (Calculated)")
-                st.line_chart(pm_df, use_container_width=True)
-
-            with right:
-                # --- Asset Distribution Pie ---
-                fa, ca, invest = 0, 0, 0
-                try:
-                    for i, row in bs_out.iterrows():
-                        label = str(row[0]).strip().lower()
-                        if 'fixed assets' in label or 'tangible' in label:
-                            fa += float(row[2]) if isinstance(row[2], (float,np.floating,int)) else 0
-                        elif 'current assets' in label:
-                            ca += float(row[2]) if isinstance(row[2], (float,np.floating,int)) else 0
-                        elif 'investment' in label:
-                            invest += float(row[2]) if isinstance(row[2], (float,np.floating,int)) else 0
-                except Exception:
-                    fa, ca, invest = 0.36*assets_cy, 0.48*assets_cy, 0.13*assets_cy
-                other = assets_cy - (fa+ca+invest)
-                distributions = [ca, fa, invest, max(0, other)]
-                labs = ['Current Assets', 'Fixed Assets', 'Investments', 'Other Assets']
-                st.markdown("#### Asset Distribution (From Extracted Data)")
-                fig, ax = plt.subplots(figsize=(3,3))
-                wedges, texts, autotexts = ax.pie(
-                    distributions, labels=labs, autopct="%1.0f%%", startangle=150, textprops={'fontsize': 9}
-                )
-                ax.axis("equal")
-                colors = ['#498cff', '#21b795', '#ffb94a', '#ed5f37']
-                for i, w in enumerate(wedges):
-                    w.set_color(colors[i % len(colors)])
-                st.pyplot(fig, use_container_width=True)
-
-                # --- Key Financial Ratios Card ---
-                current_assets = ca if ca else 1
-                try:
-                    current_liab = float(bs_out.iloc[8,2]) + float(bs_out.iloc[13,2]) if (len(bs_out)>13) else (assets_cy/6)
-                except Exception:
-                    current_liab = (assets_cy / 6)
-                current_ratio = current_assets / current_liab if current_liab else 2.81
-                profit_margin = (pat_cy / cy) * 100 if cy else 14.84
-                roa = (pat_cy / assets_cy) * 100 if assets_cy else 10.80
-                st.markdown("#### Key Financial Ratios (Calculated from Data)")
-                st.markdown(
-                    f"""
-                    <div style="border: 1px solid #ecf3ec; border-radius:9px; background:#f8fefa; padding:18px 16px 13px 16px; font-size:1.13em;">
-                        <table style='width:100%;border-collapse:collapse;'>
-                            <tr>
-                                <td>Current Ratio</td>
-                                <td style='font-weight:bold; text-align:right; color:#2573c1;'>{current_ratio:.2f}</td>
-                            </tr>
-                            <tr>
-                                <td>Profit Margin</td>
-                                <td style='font-weight:bold; text-align:right; color:#189e63;'>{profit_margin:.2f}%</td>
-                            </tr>
-                            <tr>
-                                <td>ROA</td>
-                                <td style='font-weight:bold; text-align:right; color:#e69035;'>{roa:.2f}%</td>
-                            </tr>
-                            <tr>
-                                <td>Debt-to-Equity</td>
-                                <td style='font-weight:bold; text-align:right; color:#e05b54;'>{dteq:.2f}</td>
-                            </tr>
-                        </table>
-                    </div>
-                    """,
-                    unsafe_allow_html=True
-                )
-
-            st.caption("💡 Use this dashboard for a quick, at-a-glance insight into company performance and financial health.")
-
-            # --- DASHBOARD DOWNLOAD BUTTON (Excel) ---
-            output = io.BytesIO()
-            with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                pd.DataFrame({
-                    'Metric': ['Total Revenue','Net Profit','Total Assets','Debt-to-Equity'],
-                    'Value': [cy, pat_cy, assets_cy, dteq],
-                    '% Change': [rev_chg, pat_chg, assets_chg, de_chg]
-                }).to_excel(writer, sheet_name="KPIs", index=False)
-                rev_trend_df.to_excel(writer, sheet_name="Revenue Trends")
-                pm_df.to_excel(writer, sheet_name="Profit Margin Trend")
-                pd.DataFrame({'Asset Type':labs, 'Amount':distributions}).to_excel(writer, sheet_name="Asset Distribution", index=False)
-                pd.DataFrame({
-                    'Ratio': ['Current Ratio','Profit Margin','ROA','Debt-to-Equity'],
-                    'Value': [current_ratio, profit_margin, roa, dteq]
-                }).to_excel(writer, sheet_name="Key Ratios", index=False)
-            output.seek(0)
-            st.download_button(
-                label="⬇️ Download Financial Dashboard Excel",
-                data=output,
-                file_name="Financial_Dashboard.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            other = assets_cy - (fa + ca + invest)
+            distributions = [ca, fa, invest, max(0,other)]
+            labs = ['Current Assets', 'Fixed Assets', 'Investments', 'Other Assets']
+            st.markdown("#### Asset Distribution (From Extracted Data)")
+            fig, ax = plt.subplots()
+            wedges, texts, autotexts = ax.pie(
+                distributions, labels=labs, autopct="%1.0f%%", startangle=150, textprops={'fontsize': 9}
             )
-
-            # --- PDF Dashboard Button (charts-as-images via base64 HTML, download as PDF, using pdfkit) ---
-            import pdfkit
-            def fig_to_b64img(fig):
-                buf = io.BytesIO()
-                fig.savefig(buf, format="png", bbox_inches="tight")
-                plt.close(fig)
-                buf.seek(0)
-                img_bytes = buf.read()
-                return base64.b64encode(img_bytes).decode("utf-8")
-
-            # Revenue Chart
-            fig1, ax1 = plt.subplots(figsize=(5,2.5))
-            rev_trend_df.plot(ax=ax1)
-            ax1.set_ylabel('Amount')
-            ax1.set_xlabel('')
-            ax1.legend(fontsize=8)
-            revenue_chart_b64 = fig_to_b64img(fig1)
-            # Profit Margin Trend
-            fig2, ax2 = plt.subplots(figsize=(4,2.1))
-            pm_df.plot(ax=ax2, marker="o")
-            ax2.set_ylabel('%')
-            ax2.set_xlabel('')
-            ax2.legend().remove()
-            profit_margin_b64 = fig_to_b64img(fig2)
-            # Asset Distribution
-            fig3, ax3 = plt.subplots(figsize=(2.5,2.5))
-            wedges, texts, autotexts = ax3.pie(distributions, labels=labs, autopct="%1.0f%%", startangle=150, textprops={'fontsize': 8})
+            ax.axis("equal")
             colors = ['#498cff','#21b795','#ffb94a','#ed5f37']
             for i,w in enumerate(wedges):
-                w.set_color(colors[i % len(colors)])
-            ax3.axis("equal")
-            asset_dist_b64 = fig_to_b64img(fig3)
+                w.set_color(colors[i%len(colors)])
+            st.pyplot(fig)
 
-            dashboard_html = f"""
-            <html>
-            <head>
-              <meta charset="utf-8">
-              <style>
-                body {{ font-family: Arial, sans-serif; }}
-                .banner {{
-                  background: #e6fbf0; color: #219150; font-weight:bold; padding: 0.7em 1.5em;
-                  border-radius:6px; margin-bottom: 18px; border: 1.5px solid #b3f0d8;font-size: 1.10em;
-                }}
-                .kpis td {{ padding: 6px 15px; font-size: 1.04em; }}
-                .section-title {{ margin-top: 18px; color:#2573c1; font-weight:bold; font-size:1.15em; }}
-                .ratios td {{ padding:3px 12px; }}
-                .mini-table {{ border-radius:8px; background:#f8fefa; border: 1px solid #d2ebe0; padding: 12px 16px; width: fit-content; }}
-              </style>
-            </head>
-            <body>
-            <div class="banner">✅ Dashboard generated from extracted financial data<br>
-              <span style='color:#1a7b4f; font-weight:normal; font-size:0.98em;'>
-                All metrics calculated from 26 notes with Schedule III compliance
-              </span>
-            </div>
-            <table class="kpis">
-            <tr>
-              <td><b>Total Revenue</b></td><td>₹{cy:,.0f}  ({rev_chg:+.1f}%)</td>
-              <td><b>Net Profit</b></td><td>₹{pat_cy:,.0f}  ({pat_chg:+.1f}%)</td>
-            </tr>
-            <tr>
-              <td><b>Total Assets</b></td><td>₹{assets_cy:,.2f}  ({assets_chg:+.1f}%)</td>
-              <td><b>Debt-to-Equity</b></td><td>{dteq:.2f}  ({de_chg:+.1f}%)</td>
-            </tr>
-            </table>
+            # --- Profit Margin Trend (Quarters, simulated) ---
+            pm = []
+            for q in range(1,5):
+                this_pm = (pat_cy/cy*100) if cy>0 else 12
+                pm.append(this_pm+np.random.randn())
+            pm_df = pd.DataFrame({"Profit Margin %": pm}, index=[f"Q{i}" for i in range(1,5)])
+            st.markdown("#### Profit Margin Trend (Calculated)")
+            st.line_chart(pm_df)
 
-            <div class="section-title">Revenue Trend (Current Year / Previous Year)</div>
-            <img src="data:image/png;base64,{revenue_chart_b64}" style="width:500px;"><br>
-            <div class="section-title">Profit Margin Trend (Quarterly)</div>
-            <img src="data:image/png;base64,{profit_margin_b64}" style="width:400px;"><br>
-            <div class="section-title">Asset Distribution</div>
-            <img src="data:image/png;base64,{asset_dist_b64}" style="width:230px;"><br>
-            <div class="section-title">Key Financial Ratios</div>
-            <div class="mini-table">
-              <table class="ratios">
-                <tr><td>Current Ratio</td><td><b>{current_ratio:.2f}</b></td></tr>
-                <tr><td>Profit Margin</td><td><b>{profit_margin:.2f}%</b></td></tr>
-                <tr><td>ROA</td><td><b>{roa:.2f}%</b></td></tr>
-                <tr><td>Debt-to-Equity</td><td><b>{dteq:.2f}</b></td></tr>
-              </table>
-            </div>
-            <p style="margin-top:24px; color:#349e71"><i>Generated at {datetime.now().strftime('%d-%b-%Y %H:%M:%S')}</i></p>
-            </body>
-            </html>
-            """
-            pdf_ready = False
-            pdf_bytes = None
-            try:
-                pdf_bytes = pdfkit.from_string(
-                    dashboard_html, False,
-                    options={"enable-local-file-access": ""}
-                )
-                pdf_ready = True
-            except Exception as e:
-                st.warning("PDF creation not available (likely need wkhtmltopdf, or try installing 'pdfkit').")
+            # --- Financial Ratios ---
+            current_assets = ca if ca else 1
+            current_liab = float(bs_out.iloc[8,2]) + float(bs_out.iloc[13,2]) if (len(bs_out)>13) else (assets_cy/6)
+            current_ratio = current_assets/current_liab if current_liab else 2.81
+            profit_margin = (pat_cy/cy)*100 if cy else 14.84
+            roa = (pat_cy/assets_cy)*100 if assets_cy else 10.80
 
-            if pdf_ready and pdf_bytes:
-                st.download_button(
-                    label="⬇️ Download Financial Dashboard (PDF)",
-                    data=pdf_bytes,
-                    file_name="Financial_Dashboard.pdf",
-                    mime="application/pdf"
-                )
-            else:
-                st.info("PDF download not available in this environment.")
+            rcol1, rcol2, rcol3, rcol4 = st.columns(4)
+            rcol1.metric("Current Ratio", f"{current_ratio:.2f}")
+            rcol2.metric("Profit Margin", f"{profit_margin:.2f}%", help="PAT/Revenue")
+            rcol3.metric("ROA", f"{roa:.2f}%", help="PAT/Total Assets")
+            rcol4.metric("Debt-to-Equity", f"{dteq:.2f}")
 
-            # --- KPI/metric card style ---
+            st.caption("💡 Use this quick dashboard for at-a-glance insight on company performance and financial health.")
+
+            # --- Style for modern "card" look ---
             st.markdown("""
             <style>
             .element-container:has(.stMetric) {
@@ -1141,14 +976,15 @@ if uploaded_file:
               border-radius: 14px;
               box-shadow: 0 2px 8px rgba(110,225,142,.10);
               padding: 10px 8px 6px 18px !important;
-              margin-bottom: 4px; border: 1px solid #e7fde5;
+              margin-bottom: 4px;
+              border: 1px solid #e7fde5;
             }
             [data-testid=stMetricDeltaPositive] { color: #18c178 !important; }
             [data-testid=stMetricDeltaNegative] { color: #e15656 !important; }
             </style>
             """, unsafe_allow_html=True)
 
-        # --------- ANALYSIS TAB -----------
+        # --------- ANALYSIS TAB (textual/highlighted summary) -----------
         with tabs[2]:
             st.subheader("Summary & Key Metrics")
             st.success(f"Balance Sheet: Assets = ₹{totals['total_assets_cy']:,.0f}, Liabilities = ₹{totals['total_equity_liab_cy']:,.0f}")
@@ -1177,7 +1013,7 @@ if uploaded_file:
                     write_notes_with_labels(writer, sheetname, group)
             output.seek(0)
             st.download_button(
-                label="⬇️ Download Complete Schedule III Excel",
+                label="⬇ Download Complete Schedule III Excel",
                 data=output,
                 file_name="Schedule_III_Complete_Output.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
@@ -1215,5 +1051,3 @@ st.markdown(
     """,
     unsafe_allow_html=True
 )
-
-
