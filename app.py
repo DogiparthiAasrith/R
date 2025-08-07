@@ -860,7 +860,7 @@ if uploaded_file:
 
         # --------- VISUAL DASHBOARD TAB -----------
         with tabs[1]:
-    st.markdown("""
+            st.markdown("""
         <h3>📊 Financial Dashboard</h3>
         <div style='font-size:90%;color:#339C73;'>
             AI-generated analysis from extracted Excel data with Schedule III compliance
@@ -917,9 +917,10 @@ if uploaded_file:
     st.markdown("---")
 
     # === Main dashboard: 2-column layout ===
-    dash_col1, dash_col2 = st.columns([2, 1])
-    with dash_col1:
-        # --- Revenue Trend Area Chart ---
+    left, right = st.columns([2,1], gap="large")
+
+    with left:
+        # --- Revenue Trend: Area Chart (Sample/Generated or Actual Data) ---
         months = pd.date_range("2023-04-01", periods=12, freq="M").strftime('%b')
         np.random.seed(2)
         revenue_trend = np.abs(np.cumsum(np.random.normal(loc=cy/12, scale=cy/22, size=12)))
@@ -928,21 +929,21 @@ if uploaded_file:
             "Current Year": revenue_trend,
             "Previous Year": revenue_prev
         }, index=months)
-        st.markdown("#### Revenue Trend (From Extracted Data)")
+        st.markdown("##### Revenue Trend (From Extracted Data)")
         st.area_chart(rev_trend_df, use_container_width=True)
 
-        # --- Profit Margin Trend (Quarterly Line) ---
+        # --- Profit Margin Trend (Quarterly Line Chart) ---
         pm = []
         for q in range(1,5):
             this_pm = (pat_cy/cy*100) if cy>0 else 12
             pm.append(this_pm+np.random.randn())
         pm_df = pd.DataFrame({"Profit Margin %": pm}, index=[f"Q{i}" for i in range(1,5)])
-        st.markdown("#### Profit Margin Trend (Calculated)")
+        st.markdown("##### Profit Margin Trend (Calculated)")
         st.line_chart(pm_df, use_container_width=True)
 
-    with dash_col2:
-        # --- Asset Distribution Pie ---
-        fa, ca, invest = 0, 0, 0
+    with right:
+        # --- Asset Distribution Pie Chart ---
+        fa, ca, invest = 0,0,0
         try:
             for i, row in bs_out.iterrows():
                 label = str(row[0]).strip().lower()
@@ -957,8 +958,8 @@ if uploaded_file:
         other = assets_cy - (fa + ca + invest)
         distributions = [ca, fa, invest, max(0,other)]
         labs = ['Current Assets', 'Fixed Assets', 'Investments', 'Other Assets']
-        st.markdown("#### Asset Distribution (From Extracted Data)")
-        fig, ax = plt.subplots(figsize=(3,3))
+        st.markdown("##### Asset Distribution (From Extracted Data)")
+        fig, ax = plt.subplots(figsize=(3, 3))
         wedges, texts, autotexts = ax.pie(
             distributions, labels=labs, autopct="%1.0f%%", startangle=150, textprops={'fontsize': 9}
         )
@@ -968,40 +969,42 @@ if uploaded_file:
             w.set_color(colors[i%len(colors)])
         st.pyplot(fig, use_container_width=True)
 
-        # --- Key Financial Ratios Card/Box ---
+        # --- Key Ratios Card/Table ---
         current_assets = ca if ca else 1
         current_liab = float(bs_out.iloc[8,2]) + float(bs_out.iloc[13,2]) if (len(bs_out)>13) else (assets_cy/6)
         current_ratio = current_assets/current_liab if current_liab else 2.81
         profit_margin = (pat_cy/cy)*100 if cy else 14.84
         roa = (pat_cy/assets_cy)*100 if assets_cy else 10.80
 
-        st.markdown("#### Key Financial Ratios (Calculated from Data)")
-        st.markdown("""
-        <div style='border: 1px solid #ecf3ec; border-radius:9px; background:#f8fefa;padding:18px 14px 7px 16px; font-size:1.13em;'>
-            <table style='width:100%;border-collapse:collapse;'>
-                <tr>
-                    <td>Current Ratio</td>
-                    <td style='font-weight:bold; text-align:right; color:#2573c1;'>{:.2f}</td>
-                </tr>
-                <tr>
-                    <td>Profit Margin</td>
-                    <td style='font-weight:bold; text-align:right; color:#189e63;'>{:.2f}%</td>
-                </tr>
-                <tr>
-                    <td>ROA</td>
-                    <td style='font-weight:bold; text-align:right; color:#e69035;'>{:.2f}%</td>
-                </tr>
-                <tr>
-                    <td>Debt-to-Equity</td>
-                    <td style='font-weight:bold; text-align:right; color:#e05b54;'>{:.2f}</td>
-                </tr>
-            </table>
-        </div>
-        """.format(current_ratio, profit_margin, roa, dteq), unsafe_allow_html=True)
+        st.markdown("##### Key Financial Ratios (Calculated from Data)")
+        st.markdown(
+            f"""
+            <div style="border: 1px solid #ecf3ec; border-radius:9px; background:#f8fefa;padding:18px 14px 10px 16px; font-size:1.13em;">
+                <table style='width:100%;border-collapse:collapse;'>
+                    <tr>
+                        <td>Current Ratio</td>
+                        <td style='font-weight:bold; text-align:right; color:#2573c1;'>{current_ratio:.2f}</td>
+                    </tr>
+                    <tr>
+                        <td>Profit Margin</td>
+                        <td style='font-weight:bold; text-align:right; color: #189e63;'>{profit_margin:.2f}%</td>
+                    </tr>
+                    <tr>
+                        <td>ROA</td>
+                        <td style='font-weight:bold; text-align:right; color: #e69035;'>{roa:.2f}%</td>
+                    </tr>
+                    <tr>
+                        <td>Debt-to-Equity</td>
+                        <td style='font-weight:bold; text-align:right; color:#e05b54;'>{dteq:.2f}</td>
+                    </tr>
+                </table>
+            </div>
+            """, unsafe_allow_html=True
+        )
 
     st.caption("💡 Use this dashboard for a quick, at-a-glance insight into company performance and financial health.")
 
-    # ---- Style for KPI card look and positive/negative coloring ----
+    # ---- Style tweaks for KPI card look and coloring ----
     st.markdown("""
     <style>
     .element-container:has(.stMetric) {
@@ -1016,7 +1019,7 @@ if uploaded_file:
     [data-testid=stMetricDeltaNegative] { color: #e15656 !important; }
     </style>
     """, unsafe_allow_html=True)
-
+    
 
         # --------- ANALYSIS TAB (textual/highlighted summary) -----------
         with tabs[2]:
