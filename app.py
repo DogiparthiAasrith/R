@@ -896,7 +896,7 @@ if uploaded_file:
                 equity = assets_cy/2
                 debt = assets_cy/4
             dteq = debt / equity if equity != 0 else 0
-            dteq_prev = 0.77 # you can update from previous if available
+            dteq_prev = 0.77
             dteq_delta = ((dteq - dteq_prev) / dteq_prev * 100) if dteq_prev != 0 else 0
             rev_chg = 100 * (cy - py) / py if py else 0
             pat_chg = 100 * (pat_cy - pat_py) / pat_py if pat_py else 0
@@ -912,11 +912,11 @@ if uploaded_file:
 
             st.markdown("")
 
-            # --------- Grid: Two Columns (Trends & Distribution) ---------
+            # ----- Two Columns (Trends & Distribution) -----
             left, right = st.columns([2,1], gap="large")
 
             with left:
-                # --- Revenue Trend Area Chart ---
+                # --- Revenue Trend (Area Chart) ---
                 months = pd.date_range("2023-04-01", periods=12, freq="M").strftime('%b')
                 np.random.seed(2)
                 revenue_trend = np.abs(np.cumsum(np.random.normal(loc=cy/12, scale=cy/22, size=12)))
@@ -928,7 +928,7 @@ if uploaded_file:
                 st.markdown("#### Revenue Trend (From Extracted Data)")
                 st.area_chart(rev_trend_df, use_container_width=True)
 
-                # --- Profit Margin Trend Chart (Quarterly) ---
+                # --- Profit Margin Trend (Line Chart, Quarterly) ---
                 pm = []
                 for q in range(1, 5):
                     this_pm = (pat_cy/cy*100) if cy > 0 else 12
@@ -938,7 +938,7 @@ if uploaded_file:
                 st.line_chart(pm_df, use_container_width=True)
 
             with right:
-                # --- Asset Distribution Pie ---
+                # --- Asset Distribution Pie Chart ---
                 fa, ca, invest = 0, 0, 0
                 try:
                     for i, row in bs_out.iterrows():
