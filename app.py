@@ -805,7 +805,7 @@ def process_financials(bs_df, pl_df):
         "eps_py": eps_py
     }
 
-    return bs_out, pl_out, notes, totals, df_revenue, profit_margin_trend, asset_distribution
+   
     
     # Demo PERIODIC monthly revenue and profit margin trends, asset breakdown, ratios
     months = pd.date_range("2023-04-01", periods=12, freq='M').strftime('%b')
