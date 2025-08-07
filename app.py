@@ -10,7 +10,7 @@ Original file is located at
 # ===============================
 # 1. Install dependencies (run once)
 # ===============================
-!pip install --quiet pandas openpyxl
+
 
 import pandas as pd
 import numpy as np
