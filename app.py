@@ -3,11 +3,9 @@ import pandas as pd
 import numpy as np
 import io
 from datetime import datetime
+import matplotlib.pyplot as plt
 
-# ===============================
-# Utility functions (unchanged from your code)
-# ===============================
-
+# ------- Utility functions (from your prior code, unchanged) -------
 def num(x):
     if pd.isnull(x):
         return 0.0
@@ -27,7 +25,6 @@ def safeval(df, col, name):
 
 def read_bs_and_pl(iofile):
     xl = pd.ExcelFile(iofile)
-    # Find Balance Sheet header row by locating 'LIABILITIES'
     bs_raw = pd.read_excel(xl, "Balance Sheet", header=None)
     bs_head_row = None
     for i, row in bs_raw.iterrows():
@@ -38,7 +35,6 @@ def read_bs_and_pl(iofile):
         raise Exception("Couldn't find Balance Sheet header row!")
     bs = pd.read_excel(xl, "Balance Sheet", header=bs_head_row)
     bs = bs.loc[:, ~bs.columns.str.contains('^Unnamed')]
-    # Find Profit & Loss header row by locating 'DR.PATICULARS'
     pl_raw = pd.read_excel(xl, "Profit & Loss", header=None)
     pl_head_row = None
     for i, row in pl_raw.iterrows():
@@ -815,13 +811,8 @@ def process_financials(bs_df, pl_df):
 
     return bs_out, pl_out, notes, totals
 
-# ===============================
-# STREAMLIT APP UI & DRIVER
-# ===============================
-
+# ------- STREAMLIT APP UI -------
 st.set_page_config(page_title="AI Financial Mapping Tool", layout="wide")
-
-# Sidebar system status
 with st.sidebar:
     st.markdown(
         "<h5>System Status</h5>"
@@ -830,7 +821,6 @@ with st.sidebar:
         unsafe_allow_html=True
     )
 
-# Main header/card and badge
 st.markdown(
     """
     <div style='display: flex; align-items: center; gap: 1em; margin-bottom: 1.5em;'>
@@ -842,20 +832,17 @@ st.markdown(
             </span>
         </div>
     </div>
-    """,
-    unsafe_allow_html=True
+    """, unsafe_allow_html=True
 )
 
 st.markdown("### 📑 Upload Your Excel File")
-st.markdown("Choose Excel file (*.xlsx or *.xls, max 200MB).")
-
 uploaded_file = st.file_uploader(
     "Drag and drop file here",
     type=["xls", "xlsx"],
     help="Only .xls or .xlsx files, up to 200MB.",
 )
 
-tabs = st.tabs(["Upload", "Analysis", "Reports"])
+tabs = st.tabs(["Upload", "Visual Dashboard", "Analysis", "Reports"])
 
 with tabs[0]:
     if uploaded_file:
@@ -869,21 +856,41 @@ if uploaded_file:
     try:
         input_file = io.BytesIO(uploaded_file.read())
         bs_df, pl_df = read_bs_and_pl(input_file)
-        bs_out, pl_out, notes, totals = process_financials(bs_df, pl_df)  # Use your function here
+        bs_out, pl_out, notes, totals = process_financials(bs_df, pl_df)  # Your full logic used here
 
-        # --------- ANALYSIS TAB -----------
+        # --------- VISUAL DASHBOARD TAB -----------
         with tabs[1]:
+            st.subheader("📊 Visual Dashboard")
+            st.markdown("#### Key Financial Metrics (Bar Chart)")
+            bar_data = pd.DataFrame({
+                'Metric': ['Total Revenue', 'Profit After Tax', 'Total Assets', 'Total Equity & Liabilities'],
+                'Value': [
+                    totals['total_rev_cy'], totals['pat_cy'],
+                    totals['total_assets_cy'], totals['total_equity_liab_cy']
+                ]
+            }).set_index('Metric')
+            st.bar_chart(bar_data)
+
+            st.markdown("#### Equity & Liabilities (Pie Chart)")
+            # Use example slices, improve this using your real process_financials variables if you want more detail
+            equity = totals.get('total_equity_liab_cy', 0)
+            debt = totals.get('total_assets_cy', 0) - equity
+            pie_data = pd.Series([equity, max(0, debt)], index=['Equity & Liab', 'Other'])
+            st.pyplot(pie_data.plot.pie(autopct="%.1f%%", ylabel='', figsize=(5,5)).figure)
+            st.markdown("**Interpretation**: Use the dashboard above to quickly assess company health, capital structure, and margin trends at a glance.")
+
+        # --------- ANALYSIS TAB (textual/highlighted summary) -----------
+        with tabs[2]:
             st.subheader("Summary & Key Metrics")
             st.success(f"Balance Sheet: Assets = ₹{totals['total_assets_cy']:,.0f}, Liabilities = ₹{totals['total_equity_liab_cy']:,.0f}")
             st.info(f"P&L: Revenue = ₹{totals['total_rev_cy']:,.0f}, PAT = ₹{totals['pat_cy']:,.0f}")
             st.info(f"Earnings Per Share (EPS): Current Year = ₹{totals['eps_cy']:.2f}, Previous Year = ₹{totals['eps_py']:.2f}")
-            # Optionally, insert charts here using st.bar_chart / st.pyplot
 
         # --------- REPORTS TAB -----------
-        with tabs[2]:
-            with st.expander("Balance Sheet (Schedule III Format)"):
+        with tabs[3]:
+            with st.expander("Balance Sheet (Schedule III Format)", expanded=True):
                 st.dataframe(bs_out)
-            with st.expander("Profit & Loss Statement"):
+            with st.expander("Profit & Loss Statement", expanded=False):
                 st.dataframe(pl_out)
             st.markdown("#### Notes to Accounts")
             for label, df in notes:
@@ -906,18 +913,24 @@ if uploaded_file:
                 file_name="Schedule_III_Complete_Output.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
+
     except Exception as e:
         with tabs[1]:
             st.error(f"Error processing file: {e}")
         with tabs[2]:
             st.error(f"Error processing file: {e}")
+        with tabs[3]:
+            st.error(f"Error processing file: {e}")
+
 else:
     with tabs[1]:
-        st.info("Awaiting Excel file upload for analysis.")
+        st.info("Awaiting Excel file upload for dashboard.")
     with tabs[2]:
-        st.info("Awaiting Excel file upload for reports/projects.")
+        st.info("Awaiting Excel file upload for analysis.")
+    with tabs[3]:
+        st.info("Awaiting Excel file upload for reports.")
 
-# OPTIONAL STYLE OVERRIDE FOR CARD-LOOK
+# ---- Style tweaks for modern card look ----
 st.markdown(
     """
     <style>
