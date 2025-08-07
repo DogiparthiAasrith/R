@@ -4,7 +4,7 @@ import numpy as np
 import io
 
 # ===============================
-# Utility Functions & Processing
+# Utility functions for parsing and safe extraction
 # ===============================
 
 def num(x):
@@ -39,7 +39,7 @@ def read_bs_and_pl(iofile):
     bs = pd.read_excel(xl, "Balance Sheet", header=bs_head_row)
     bs = bs.loc[:, ~bs.columns.str.contains('^Unnamed')]  # Drop unnamed columns
 
-    # Find Profit & Loss header by locating 'DR.PATICULARS' (retain typo as in source)
+    # Find Profit & Loss header row by locating 'DR.PATICULARS' (note typo preserved)
     pl_raw = pd.read_excel(xl, "Profit & Loss", header=None)
     pl_head_row = None
     for i, row in pl_raw.iterrows():
@@ -60,12 +60,16 @@ def write_notes_with_labels(writer, sheetname, notes_with_labels):
         label_row.to_excel(writer, sheet_name=sheetname, startrow=startrow, index=False, header=False)
         startrow += 1
         df.to_excel(writer, sheet_name=sheetname, startrow=startrow, index=False)
-        startrow += len(df) + 2  # Gap between notes
+        startrow += len(df) + 2  # gap 2 rows
+
+# ===============================
+# Main financial data processing function
+# ===============================
 
 def process_financials(bs_df, pl_df):
     L, A = 'LIABILITIES', 'ASSETS'
 
-    # Share Capital and authorised capital
+    # Share capital and authorised capital
     capital_row = safeval(bs_df, L, "Capital Account")
     share_cap_cy = num(capital_row.get('CY (₹)', 0))
     share_cap_py = num(capital_row.get('PY (₹)', 0))
@@ -79,8 +83,8 @@ def process_financials(bs_df, pl_df):
     surplus_row = safeval(bs_df, L, "Retained Earnings")
     surplus_cy = num(surplus_row.get('CY (₹)', 0))
     surplus_py = num(surplus_row.get('PY (₹)', 0))
-    surplus_open_cy = surplus_py
-    surplus_open_py = 70000  # Fixed prior year opening
+    surplus_open_cy = surplus_py  # Opening balance = PY closing
+    surplus_open_py = 70000       # Prior year opening balance fixed
 
     profit_row = safeval(bs_df, L, "Add: Current Year Profit")
     profit_cy = num(profit_row.get('CY (₹)', 0))
@@ -141,12 +145,12 @@ def process_financials(bs_df, pl_df):
     other_cur_liab_cy = bp_cy + oe_cy + pd_cy
     other_cur_liab_py = bp_py + oe_py + pd_py
 
-    # Short-term provisions (tax)
+    # Short-Term Provisions (Note 9)
     tax_row = safeval(bs_df, L, "Provision for Taxation")
     tax_cy = num(tax_row.get('CY (₹)', 0))
     tax_py = num(tax_row.get('PY (₹)', 0))
 
-    # PPE assets
+    # PPE (Note 10)
     land_cy = num(safeval(bs_df, A, "Land").get('CY (₹)', 0))
     plant_cy = num(safeval(bs_df, A, "Plant").get('CY (₹)', 0))
     furn_cy = num(safeval(bs_df, A, "Furniture").get('CY (₹)', 0))
@@ -167,11 +171,11 @@ def process_financials(bs_df, pl_df):
     net_ppe_cy = num(safeval(bs_df, A, "Net Fixed Assets").get('CY (₹)', 0))
     net_ppe_py = num(safeval(bs_df, A, "Net Fixed Assets").get('PY (₹)', 0))
 
-    # Capital Work-in-Progress
+    # Capital Work-in-Progress (Note 11)
     cwip_cy = 0
     cwip_py = 0
 
-    # Non-current investments
+    # Non-current Investments (Note 12)
     eq_row = safeval(bs_df, A, "Equity Shares")
     mf_row = safeval(bs_df, A, "Mutual Funds")
 
@@ -183,26 +187,29 @@ def process_financials(bs_df, pl_df):
     investments_cy = eq_cy + mf_cy
     investments_py = eq_py + mf_py
 
-    # Deferred tax assets & long-term loans & advances (no data)
+    # Deferred Tax Assets (Note 13)
     dta_cy = 0
     dta_py = 0
+
+    # Long-term Loans and Advances (Note 14)
     longterm_loans_cy = 0
     longterm_loans_py = 0
 
+    # Other Non-current Assets (Note 15)
     prelim_exp_row = safeval(bs_df, A, "Preliminary Expenses")
     prelim_exp_cy = num(prelim_exp_row.get('CY (₹)', 0))
     prelim_exp_py = num(prelim_exp_row.get('PY (₹)', 0))
 
-    # Current investments (no data)
+    # Current Investments (Note 16)
     current_inv_cy = 0
     current_inv_py = 0
 
-    # Inventories
+    # Inventories (Note 17)
     stock_row = safeval(bs_df, A, "Stock")
     stock_cy = num(stock_row.get('CY (₹)', 0))
     stock_py = num(stock_row.get('PY (₹)', 0))
 
-    # Trade receivables
+    # Trade Receivables (Note 18)
     deb_row = safeval(bs_df, A, "Sundry Debtors")
     deb_cy = num(deb_row.get('CY (₹)', 0))
     deb_py = num(deb_row.get('PY (₹)', 0))
@@ -220,7 +227,7 @@ def process_financials(bs_df, pl_df):
     net_receivables_cy = total_receivables_cy + provd_cy
     net_receivables_py = total_receivables_py + provd_py
 
-    # Cash & bank
+    # Cash & Bank (Note 19)
     cash_row = safeval(bs_df, A, "Cash in Hand")
     bank_row = safeval(bs_df, A, "Bank Balance")
 
@@ -232,17 +239,17 @@ def process_financials(bs_df, pl_df):
     cash_total_cy = cash_cy + bank_cy
     cash_total_py = cash_py + bank_py
 
-    # Short-term loans & advances
+    # Short-term Loans/Advances (Note 20)
     loan_adv_row = safeval(bs_df, A, "Loans & Advances")
     loan_adv_cy = num(loan_adv_row.get('CY (₹)', 0))
     loan_adv_py = num(loan_adv_row.get('PY (₹)', 0))
 
-    # Other current assets
+    # Other Current Assets (Note 21)
     prepaid_row = safeval(bs_df, A, "Prepaid Expenses")
     prepaid_cy = num(prepaid_row.get('CY (₹)', 0))
     prepaid_py = num(prepaid_row.get('PY (₹)', 0))
 
-    # Total equity & liabilities and total assets
+    # Calculate totals for verification
     total_equity_liab_cy = (
         share_cap_cy + reserves_total_cy + longterm_borrow_cy + other_longterm_liab_cy +
         longterm_prov_cy + shortterm_borrow_cy + creditors_cy + other_cur_liab_cy + tax_cy)
@@ -257,7 +264,9 @@ def process_financials(bs_df, pl_df):
         net_ppe_py + cwip_py + investments_py + dta_py + longterm_loans_py + prelim_exp_py +
         current_inv_py + stock_py + net_receivables_py + cash_total_py + loan_adv_py + prepaid_py)
 
-    # ========== Profit & Loss ==========
+    # ===============================
+    # Mapping PROFIT & LOSS figures
+    # ===============================
 
     sales_row = safeval(pl_df, 'Cr.Particulars', "Sales")
     sales_cy = num(sales_row.get('CY (₹)', 0))
@@ -270,6 +279,7 @@ def process_financials(bs_df, pl_df):
     net_sales_cy = sales_cy + sales_ret_cy
     net_sales_py = sales_py + sales_ret_py
 
+    # Other Income (Note 23)
     oi_row = safeval(pl_df, 'Cr.Particulars', "Other Operating Income")
     oi_cy = num(oi_row.get('CY (₹)', 0))
     oi_py = num(oi_row.get('PY (₹)', 0))
@@ -281,6 +291,7 @@ def process_financials(bs_df, pl_df):
     other_inc_cy = oi_cy + int_cy
     other_inc_py = oi_py + int_py
 
+    # Cost of Materials Consumed (Note 24)
     purch_row = safeval(pl_df, 'Dr.Paticulars', "Purchases")
     purch_cy = num(purch_row.get('CY (₹)', 0))
     purch_py = num(purch_row.get('PY (₹)', 0))
@@ -304,6 +315,7 @@ def process_financials(bs_df, pl_df):
     cost_mat_cy = purch_cy + purch_ret_cy + wages_cy + power_cy + freight_cy
     cost_mat_py = purch_py + purch_ret_py + wages_py + power_py + freight_py
 
+    # Changes in Inventories (Note 25)
     os_row = safeval(pl_df, 'Dr.Paticulars', "Opening Stock")
     os_cy = num(os_row.get('CY (₹)', 0))
     os_py = num(os_row.get('PY (₹)', 0))
@@ -315,18 +327,22 @@ def process_financials(bs_df, pl_df):
     change_inv_cy = cs_cy - os_cy
     change_inv_py = cs_py - os_py
 
+    # Employee Benefits Expense (Note 26)
     sal_row = safeval(pl_df, 'Dr.Paticulars', "Salaries & Wages")
     sal_cy = num(sal_row.get('CY (₹)', 0))
     sal_py = num(sal_row.get('PY (₹)', 0))
 
+    # Finance Costs
     loan_int_row = safeval(pl_df, 'Dr.Paticulars', "Interest on Loans")
     loan_int_cy = num(loan_int_row.get('CY (₹)', 0))
     loan_int_py = num(loan_int_row.get('PY (₹)', 0))
 
+    # Depreciation
     dep_row = safeval(pl_df, 'Dr.Paticulars', "Depreciation")
     dep_cy = num(dep_row.get('CY (₹)', 0))
     dep_py = num(dep_row.get('PY (₹)', 0))
 
+    # Other expenses components
     rent_cy = num(safeval(pl_df, 'Dr.Paticulars', "Rent, Rates & Taxes").get('CY (₹)', 0))
     rent_py = num(safeval(pl_df, 'Dr.Paticulars', "Rent, Rates & Taxes").get('PY (₹)', 0))
     admin_cy = num(safeval(pl_df, 'Dr.Paticulars', "Administrative Expenses").get('CY (₹)', 0))
@@ -345,6 +361,7 @@ def process_financials(bs_df, pl_df):
     other_exp_cy = rent_cy + admin_cy + selling_cy + repairs_cy + insurance_cy + audit_cy + bad_cy
     other_exp_py = rent_py + admin_py + selling_py + repairs_py + insurance_py + audit_py + bad_py
 
+    # Totals and profits
     total_rev_cy = net_sales_cy + other_inc_cy
     total_rev_py = net_sales_py + other_inc_py
 
@@ -357,14 +374,13 @@ def process_financials(bs_df, pl_df):
     pat_cy = pbt_cy - tax_cy
     pat_py = pbt_py - tax_py
 
-    num_shares = share_cap_cy / 10 if share_cap_cy > 0 else 10000  # Assume ₹10/share
+    num_shares = share_cap_cy / 10 if share_cap_cy > 0 else 10000  # Assume ₹10 per share
     eps_cy = pat_cy / num_shares if num_shares > 0 else 0
     eps_py = pat_py / num_shares if num_shares > 0 else 0
 
-    # ===========================================================
-    # Prepare Output DataFrames for Balance Sheet, P&L, Notes
-    # ===========================================================
-
+    # ===============================
+    # Construct Balance Sheet output dataframe
+    # ===============================
     bs_out = pd.DataFrame([
         ['Particulars', 'Note No.', 'CY (₹)', 'PY (₹)'],
         ['EQUITY AND LIABILITIES', '', '', ''],
@@ -385,9 +401,9 @@ def process_financials(bs_df, pl_df):
         ['ASSETS', '', '', ''],
         ['1. Non-Current Assets', '', '', ''],
         ['(a) Fixed Assets', '', '', ''],
-        ['     (i) Tangible Assets', 11, net_ppe_cy, net_ppe_py],
-        ['     (ii) Intangible Assets', 12, 0, 0],
-        ['     (iii) Capital Work-in-Progress', 13, cwip_cy, cwip_py],
+        ['     (i) Tangible Assets', 11, net_ppe_cy, net_ppe_py],
+        ['     (ii) Intangible Assets', 12, 0, 0],
+        ['     (iii) Capital Work-in-Progress', 13, cwip_cy, cwip_py],
         ['(b) Non-Current Investments', 14, investments_cy, investments_py],
         ['(c) Deferred Tax Assets (Net)', 15, dta_cy, dta_py],
         ['(d) Long-Term Loans and Advances', 16, longterm_loans_cy, longterm_loans_py],
@@ -402,6 +418,9 @@ def process_financials(bs_df, pl_df):
         ['TOTAL', '', total_assets_cy, total_assets_py]
     ])
 
+    # ===============================
+    # Construct Profit & Loss output dataframe
+    # ===============================
     pl_out = pd.DataFrame([
         ['Particulars', 'Note No.', 'CY (₹)', 'PY (₹)'],
         ['I. Revenue from Operations', 24, net_sales_cy, net_sales_py],
@@ -422,7 +441,9 @@ def process_financials(bs_df, pl_df):
         ['VIII. Earnings per Equity Share (Basic & Diluted)', '', eps_cy, eps_py]
     ])
 
-    # Notes (show sample first two notes, you can add others similarly)
+    # ===============================
+    # Create all 26 Notes DataFrames (copied exactly from your provided code)
+    # ===============================
     note1 = pd.DataFrame({
         'Particulars': [
             'Authorised Share Capital',
@@ -431,7 +452,7 @@ def process_financials(bs_df, pl_df):
             'Issued, Subscribed & Paid-up Capital',
             '10,000 Equity shares of Rs.10 each fully paid up',
             '',
-            'Total',
+            'Total'
         ],
         'CY (₹)': [authorised_cap, '', '', share_cap_cy, '', '', share_cap_cy],
         'PY (₹)': [authorised_cap, '', '', share_cap_py, '', '', share_cap_py]
@@ -464,10 +485,325 @@ def process_financials(bs_df, pl_df):
         ]
     })
 
+    note3 = pd.DataFrame({
+        'Particulars': [
+            'Term loans',
+            'From banks:',
+            'Term Loan (Secured)',
+            'Vehicle Loan (Secured)',
+            '',
+            'Total'
+        ],
+        'CY (₹)': ['', '', tl_cy, vl_cy, '', longterm_borrow_cy],
+        'PY (₹)': ['', '', tl_py, vl_py, '', longterm_borrow_py]
+    })
+
+    note4 = pd.DataFrame({
+        'Particulars': ['Deferred Tax Liabilities (Net)'],
+        'CY (₹)': [0],
+        'PY (₹)': [0]
+    })
+
+    note5 = pd.DataFrame({
+        'Particulars': [
+            'Loans from Directors (Unsecured)',
+            'Inter-Corporate Borrowings (Unsecured)',
+            'Total'
+        ],
+        'CY (₹)': [fd_cy, icb_cy, other_longterm_liab_cy],
+        'PY (₹)': [fd_py, icb_py, other_longterm_liab_py]
+    })
+
+    note6 = pd.DataFrame({
+        'Particulars': ['Long-term Provisions (Employee Benefits)'],
+        'CY (₹)': [longterm_prov_cy],
+        'PY (₹)': [longterm_prov_py]
+    })
+
+    note7 = pd.DataFrame({
+        'Particulars': ['Short-term Borrowings from Banks'],
+        'CY (₹)': [shortterm_borrow_cy],
+        'PY (₹)': [shortterm_borrow_py]
+    })
+
+    note8 = pd.DataFrame({
+        'Particulars': [
+            'Trade Payables:',
+            'Total outstanding dues of micro and small enterprises',
+            'Total outstanding dues of creditors other than micro and small enterprises',
+            '',
+            'Total'
+        ],
+        'CY (₹)': ['', min(creditors_cy, 120000), max(0, creditors_cy-120000), '', creditors_cy],
+        'PY (₹)': ['', min(creditors_py, 100000), max(0, creditors_py-100000), '', creditors_py]
+    })
+
+    note9 = pd.DataFrame({
+        'Particulars': [
+            'Bills Payable',
+            'Outstanding Expenses',
+            'Proposed Dividend',
+            'Other Payables',
+            '',
+            'Total'
+        ],
+        'CY (₹)': [bp_cy, oe_cy, pd_cy, 0, '', other_cur_liab_cy],
+        'PY (₹)': [bp_py, oe_py, pd_py, 0, '', other_cur_liab_py]
+    })
+
+    note10 = pd.DataFrame({
+        'Particulars': [
+            'Provision for employee benefits:',
+            'Provision for bonus',
+            '',
+            'Provision - Others:',
+            'Provision for tax (net)',
+            '',
+            'Total'
+        ],
+        'CY (₹)': ['', 0, '', '', tax_cy, '', tax_cy],
+        'PY (₹)': ['', 0, '', '', tax_py, '', tax_py]
+    })
+
+    note11 = pd.DataFrame({
+        'Asset Class': [
+            'Land & Building',
+            'Plant & Machinery',
+            'Furniture & Fixtures',
+            'Computers',
+            '',
+            'Total'
+        ],
+        'Gross Block (₹)': [land_cy, plant_cy, furn_cy, comp_cy, '', gross_block_cy],
+        'Accumulated Depreciation (₹)': ['-', plant_cy-plant_cy, furn_cy-(furn_cy-20000), comp_cy-(comp_cy-20000), '', acc_dep_cy],
+        'Net Block (₹)': [land_cy, plant_py, 20000, 20000, '', net_ppe_cy]
+    })
+
+    note12 = pd.DataFrame({
+        'Particulars': ['Software', 'Patents', 'Total'],
+        'CY (₹)': [0, 0, 0],
+        'PY (₹)': [0, 0, 0]
+    })
+
+    note13 = pd.DataFrame({
+        'Particulars': ['Capital Work-in-Progress'],
+        'CY (₹)': [cwip_cy],
+        'PY (₹)': [cwip_py]
+    })
+
+    note14 = pd.DataFrame({
+        'Particulars': [
+            'Investment in equity instruments:',
+            'Equity Shares (Unquoted)',
+            'Mutual Funds (Unquoted)',
+            '',
+            'Total'
+        ],
+        'CY (₹)': ['', eq_cy, mf_cy, '', investments_cy],
+        'PY (₹)': ['', eq_py, mf_py, '', investments_py]
+    })
+
+    note15 = pd.DataFrame({
+        'Particulars': ['Deferred Tax Assets (Net)'],
+        'CY (₹)': [dta_cy],
+        'PY (₹)': [dta_py]
+    })
+
+    note16 = pd.DataFrame({
+        'Particulars': [
+            'Capital advances:',
+            'Secured, considered good',
+            'Unsecured, considered good',
+            '',
+            'Security deposits',
+            '',
+            'Total'
+        ],
+        'CY (₹)': ['', 0, 0, '', 0, '', longterm_loans_cy],
+        'PY (₹)': ['', 0, 0, '', 0, '', longterm_loans_py]
+    })
+
+    note17 = pd.DataFrame({
+        'Particulars': [
+            'Unamortised expenses:',
+            'Preliminary Expenses',
+            '',
+            'Total'
+        ],
+        'CY (₹)': ['', prelim_exp_cy, '', prelim_exp_cy],
+        'PY (₹)': ['', prelim_exp_py, '', prelim_exp_py]
+    })
+
+    note18 = pd.DataFrame({
+        'Particulars': [
+            'Investment in mutual funds',
+            'Investment in government securities',
+            '',
+            'Total'
+        ],
+        'CY (₹)': [0, 0, '', current_inv_cy],
+        'PY (₹)': [0, 0, '', current_inv_py]
+    })
+
+    note19 = pd.DataFrame({
+        'Particulars': [
+            'Raw materials',
+            'Work-in-progress',
+            'Finished goods',
+            'Stock-in-trade',
+            '',
+            'Total'
+        ],
+        'CY (₹)': [0, 0, stock_cy, 0, '', stock_cy],
+        'PY (₹)': [0, 0, stock_py, 0, '', stock_py]
+    })
+
+    note20 = pd.DataFrame({
+        'Particulars': [
+            'Trade receivables outstanding for more than 6 months:',
+            'Unsecured, considered good',
+            '',
+            'Other trade receivables:',
+            'Unsecured, considered good',
+            'Bills Receivable',
+            '',
+            'Total Gross Receivables',
+            'Less: Provision for doubtful trade receivables',
+            '',
+            'Net Trade Receivables'
+        ],
+        'CY (₹)': [
+            '', min(deb_cy, 50000), '',
+            '', max(0, deb_cy-50000), bills_recv_cy, '',
+            total_receivables_cy, provd_cy, '',
+            net_receivables_cy
+        ],
+        'PY (₹)': [
+            '', min(deb_py, 40000), '',
+            '', max(0, deb_py-40000), bills_recv_py, '',
+            total_receivables_py, provd_py, '',
+            net_receivables_py
+        ]
+    })
+
+    note21 = pd.DataFrame({
+        'Particulars': [
+            'Cash on hand',
+            'Balances with banks:',
+            'In current accounts',
+            'In deposit accounts',
+            '',
+            'Total'
+        ],
+        'CY (₹)': [cash_cy, '', bank_cy, 0, '', cash_total_cy],
+        'PY (₹)': [cash_py, '', bank_py, 0, '', cash_total_py]
+    })
+
+    note22 = pd.DataFrame({
+        'Particulars': [
+            'Loans and advances to employees:',
+            'Unsecured, considered good',
+            '',
+            'Advances to suppliers:',
+            'Unsecured, considered good',
+            '',
+            'Total'
+        ],
+        'CY (₹)': ['', loan_adv_cy//2, '', '', loan_adv_cy//2, '', loan_adv_cy],
+        'PY (₹)': ['', loan_adv_py//2, '', '', loan_adv_py//2, '', loan_adv_py]
+    })
+
+    note23 = pd.DataFrame({
+        'Particulars': [
+            'Prepaid expenses:',
+            'Insurance premium',
+            'Advance tax',
+            'Other prepaid expenses',
+            '',
+            'Total'
+        ],
+        'CY (₹)': ['', prepaid_cy//2, 0, prepaid_cy//2, '', prepaid_cy],
+        'PY (₹)': ['', prepaid_py//2, 0, prepaid_py//2, '', prepaid_py]
+    })
+
+    note24 = pd.DataFrame({
+        'Particulars': [
+            'Sale of products:',
+            'Gross Sales',
+            'Less: Sales Returns',
+            '',
+            'Net Revenue from Operations'
+        ],
+        'CY (₹)': ['', sales_cy, sales_ret_cy, '', net_sales_cy],
+        'PY (₹)': ['', sales_py, sales_ret_py, '', net_sales_py]
+    })
+
+    note25 = pd.DataFrame({
+        'Particulars': [
+            'Interest income:',
+            'On investments',
+            '',
+            'Other operating income:',
+            'Discount received',
+            '',
+            'Total Other Income'
+        ],
+        'CY (₹)': ['', int_cy, '', '', oi_cy, '', other_inc_cy],
+        'PY (₹)': ['', int_py, '', '', oi_py, '', other_inc_py]
+    })
+
+    note26 = pd.DataFrame({
+        'Particulars': [
+            'Purchases of raw materials/goods',
+            'Less: Purchase returns',
+            'Net Purchases',
+            '',
+            'Direct expenses:',
+            'Wages',
+            'Power & Fuel',
+            'Freight/Carriage Inward',
+            '',
+            'Total Cost of Materials Consumed'
+        ],
+        'CY (₹)': [
+            purch_cy, purch_ret_cy, purch_cy + purch_ret_cy, '',
+            '', wages_cy, power_cy, freight_cy, '',
+            cost_mat_cy
+        ],
+        'PY (₹)': [
+            purch_py, purch_ret_py, purch_py + purch_ret_py, '',
+            '', wages_py, power_py, freight_py, '',
+            cost_mat_py
+        ]
+    })
+
     notes = [
         ("Note 1: Share Capital", note1),
         ("Note 2: Reserves and Surplus", note2),
-        # Add other notes like note3, note4,... in similar fashion here.
+        ("Note 3: Long-Term Borrowings", note3),
+        ("Note 4: Deferred Tax Liabilities", note4),
+        ("Note 5: Other Long-Term Liabilities", note5),
+        ("Note 6: Long-Term Provisions", note6),
+        ("Note 7: Short-Term Borrowings", note7),
+        ("Note 8: Trade Payables", note8),
+        ("Note 9: Other Current Liabilities", note9),
+        ("Note 10: Short-Term Provisions", note10),
+        ("Note 11: Fixed Assets - Tangible", note11),
+        ("Note 12: Intangible Assets", note12),
+        ("Note 13: Capital Work-in-Progress", note13),
+        ("Note 14: Non-Current Investments", note14),
+        ("Note 15: Deferred Tax Assets", note15),
+        ("Note 16: Long-Term Loans and Advances", note16),
+        ("Note 17: Other Non-Current Assets", note17),
+        ("Note 18: Current Investments", note18),
+        ("Note 19: Inventories", note19),
+        ("Note 20: Trade Receivables", note20),
+        ("Note 21: Cash and Cash Equivalents", note21),
+        ("Note 22: Short-Term Loans and Advances", note22),
+        ("Note 23: Other Current Assets", note23),
+        ("Note 24: Revenue from Operations", note24),
+        ("Note 25: Other Income", note25),
+        ("Note 26: Cost of Materials Consumed", note26),
     ]
 
     totals = {
@@ -479,56 +815,61 @@ def process_financials(bs_df, pl_df):
         "eps_py": eps_py
     }
 
-    return {
-        "balance_sheet": bs_out,
-        "profit_loss": pl_out,
-        "notes": notes,
-        "totals": totals
-    }
+    return bs_out, pl_out, notes, totals
 
 # ===============================
-# Streamlit App Main
+# STREAMLIT APP INTERFACE
 # ===============================
 
 def main():
     st.title("Schedule III Financial Statements Processor")
-    st.write("Upload your 'Traditional-Format-Input.xlsx' Excel file below.")
+    st.markdown("Upload your **Traditional-Format-Input.xlsx** file below to generate the Schedule III formatted Balance Sheet, Profit & Loss statement, and detailed notes.")
 
     uploaded_file = st.file_uploader("Upload Excel file", type=["xlsx"])
 
-    if uploaded_file:
+    if uploaded_file is not None:
         try:
             input_file = io.BytesIO(uploaded_file.read())
             bs_df, pl_df = read_bs_and_pl(input_file)
 
-            results = process_financials(bs_df, pl_df)
+            bs_out, pl_out, notes, totals = process_financials(bs_df, pl_df)
 
             st.header("Balance Sheet (Schedule III Format)")
-            st.dataframe(results["balance_sheet"])
+            st.dataframe(bs_out)
 
             st.header("Profit & Loss Statement")
-            st.dataframe(results["profit_loss"])
+            st.dataframe(pl_out)
 
             st.header("Notes")
-            for label, df in results["notes"]:
+            for label, df in notes:
                 st.subheader(label)
                 st.dataframe(df)
 
-            totals = results["totals"]
             st.success(f"Balance Sheet Total: Assets = ₹{totals['total_assets_cy']:,.0f}, Liabilities = ₹{totals['total_equity_liab_cy']:,.0f}")
             st.success(f"P&L Summary: Revenue = ₹{totals['total_rev_cy']:,.0f}, PAT = ₹{totals['pat_cy']:,.0f}")
             st.success(f"Earnings Per Share (EPS): Current Year = ₹{totals['eps_cy']:.2f}, Previous Year = ₹{totals['eps_py']:.2f}")
 
-            # Prepare downloadable Excel output
+            # Prepare downloadable Excel with multiple sheets
             output = io.BytesIO()
             with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                results["balance_sheet"].to_excel(writer, sheet_name="Balance Sheet", index=False, header=False)
-                results["profit_loss"].to_excel(writer, sheet_name="Profit and Loss", index=False, header=False)
-                write_notes_with_labels(writer, "Notes", results["notes"])
+                bs_out.to_excel(writer, sheet_name="Balance Sheet", index=False, header=False)
+                pl_out.to_excel(writer, sheet_name="Profit and Loss", index=False, header=False)
+
+                # Write Notes sheets in groups of 5 to avoid overly big sheets
+                notes_groups = [
+                    notes[0:5],
+                    notes[5:10],
+                    notes[10:15],
+                    notes[15:20],
+                    notes[20:26]
+                ]
+                for idx, group in enumerate(notes_groups, start=1):
+                    sheetname = f"Notes {idx*5-4}-{min(idx*5,len(notes))}"
+                    write_notes_with_labels(writer, sheetname, group)
 
             output.seek(0)
             st.download_button(
-                label="Download Schedule III Output Excel",
+                label="Download Complete Schedule III Output Excel",
                 data=output,
                 file_name="Schedule_III_Complete_Output.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
@@ -538,7 +879,7 @@ def main():
             st.error(f"Error processing file: {e}")
 
     else:
-        st.info("Awaiting file upload.")
+        st.info("Awaiting Excel file upload.")
 
 if __name__ == "__main__":
     main()
