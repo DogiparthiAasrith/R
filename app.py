@@ -37,7 +37,7 @@ def read_bs_and_pl(iofile):
     if bs_head_row is None:
         raise Exception("Couldn't find Balance Sheet header row!")
     bs = pd.read_excel(xl, "Balance Sheet", header=bs_head_row)
-    bs = bs.loc[:, ~bs.columns.str.contains('^Unnamed')]  # Drop unnamed columns
+    bs = bs.loc[:, ~bs.columns.str.contains('^Unnamed')] # Drop unnamed columns
 
     # Find Profit & Loss header row by locating 'DR.PATICULARS' (note typo preserved)
     pl_raw = pd.read_excel(xl, "Profit & Loss", header=None)
@@ -60,7 +60,7 @@ def write_notes_with_labels(writer, sheetname, notes_with_labels):
         label_row.to_excel(writer, sheet_name=sheetname, startrow=startrow, index=False, header=False)
         startrow += 1
         df.to_excel(writer, sheet_name=sheetname, startrow=startrow, index=False)
-        startrow += len(df) + 2  # gap 2 rows
+        startrow += len(df) + 2 # gap 2 rows
 
 # ===============================
 # Main financial data processing function
@@ -73,7 +73,7 @@ def process_financials(bs_df, pl_df):
     capital_row = safeval(bs_df, L, "Capital Account")
     share_cap_cy = num(capital_row.get('CY (₹)', 0))
     share_cap_py = num(capital_row.get('PY (₹)', 0))
-    authorised_cap = max(share_cap_cy, share_cap_py) * 1.2  # 20% buffer
+    authorised_cap = max(share_cap_cy, share_cap_py) * 1.2 # 20% buffer
 
     # Reserves and Surplus
     gr_row = safeval(bs_df, L, "General Reserve")
@@ -83,8 +83,8 @@ def process_financials(bs_df, pl_df):
     surplus_row = safeval(bs_df, L, "Retained Earnings")
     surplus_cy = num(surplus_row.get('CY (₹)', 0))
     surplus_py = num(surplus_row.get('PY (₹)', 0))
-    surplus_open_cy = surplus_py  # Opening balance = PY closing
-    surplus_open_py = 70000       # Prior year opening balance fixed
+    surplus_open_cy = surplus_py # Opening balance = PY closing
+    surplus_open_py = 70000 # Prior year opening balance fixed
 
     profit_row = safeval(bs_df, L, "Add: Current Year Profit")
     profit_cy = num(profit_row.get('CY (₹)', 0))
@@ -374,7 +374,7 @@ def process_financials(bs_df, pl_df):
     pat_cy = pbt_cy - tax_cy
     pat_py = pbt_py - tax_py
 
-    num_shares = share_cap_cy / 10 if share_cap_cy > 0 else 10000  # Assume ₹10 per share
+    num_shares = share_cap_cy / 10 if share_cap_cy > 0 else 10000
     eps_cy = pat_cy / num_shares if num_shares > 0 else 0
     eps_py = pat_py / num_shares if num_shares > 0 else 0
 
@@ -401,9 +401,9 @@ def process_financials(bs_df, pl_df):
         ['ASSETS', '', '', ''],
         ['1. Non-Current Assets', '', '', ''],
         ['(a) Fixed Assets', '', '', ''],
-        ['     (i) Tangible Assets', 11, net_ppe_cy, net_ppe_py],
-        ['     (ii) Intangible Assets', 12, 0, 0],
-        ['     (iii) Capital Work-in-Progress', 13, cwip_cy, cwip_py],
+        ['      (i) Tangible Assets', 11, net_ppe_cy, net_ppe_py],
+        ['      (ii) Intangible Assets', 12, 0, 0],
+        ['      (iii) Capital Work-in-Progress', 13, cwip_cy, cwip_py],
         ['(b) Non-Current Investments', 14, investments_cy, investments_py],
         ['(c) Deferred Tax Assets (Net)', 15, dta_cy, dta_py],
         ['(d) Long-Term Loans and Advances', 16, longterm_loans_cy, longterm_loans_py],
@@ -442,7 +442,7 @@ def process_financials(bs_df, pl_df):
     ])
 
     # ===============================
-    # Create all 26 Notes DataFrames (copied exactly from your provided code)
+    # Create all 26 Notes DataFrames
     # ===============================
     note1 = pd.DataFrame({
         'Particulars': [
@@ -881,5 +881,5 @@ def main():
     else:
         st.info("Awaiting Excel file upload.")
 
-if _name_ == "_main_":
+if __name__ == "__main__":
     main()
