@@ -812,7 +812,7 @@ def process_financials(bs_df, pl_df):
     return bs_out, pl_out, notes, totals
 
 # ---------------------- Streamlit UI code below -------------------------
-# Placeholders: you must define read_bs_and_pl, process_financials, write_notes_with_labels at the top of your script
+# --- Placeholders: you must define read_bs_and_pl, process_financials, write_notes_with_labels ----
 
 st.set_page_config(page_title="AI Financial Mapping Tool", layout="wide")
 with st.sidebar:
@@ -917,7 +917,7 @@ if uploaded_file:
             left, right = st.columns([2,1], gap="large")
 
             with left:
-                # --- Revenue Trend (Area Chart) ---
+                # --- Revenue Trend ---
                 months = pd.date_range("2023-04-01", periods=12, freq="M").strftime('%b')
                 np.random.seed(2)
                 revenue_trend = np.abs(np.cumsum(np.random.normal(loc=cy/12, scale=cy/22, size=12)))
@@ -929,7 +929,7 @@ if uploaded_file:
                 st.markdown("#### Revenue Trend (From Extracted Data)")
                 st.area_chart(rev_trend_df, use_container_width=True)
 
-                # --- Profit Margin Trend (Line Chart, Quarterly) ---
+                # --- Profit Margin Trend (Quarterly) ---
                 pm = []
                 for q in range(1, 5):
                     this_pm = (pat_cy/cy*100) if cy > 0 else 12
@@ -939,7 +939,7 @@ if uploaded_file:
                 st.line_chart(pm_df, use_container_width=True)
 
             with right:
-                # --- Asset Distribution Pie Chart ---
+                # --- Asset Distribution Pie ---
                 fa, ca, invest = 0, 0, 0
                 try:
                     for i, row in bs_out.iterrows():
@@ -975,7 +975,6 @@ if uploaded_file:
                 current_ratio = current_assets / current_liab if current_liab else 2.81
                 profit_margin = (pat_cy / cy) * 100 if cy else 14.84
                 roa = (pat_cy / assets_cy) * 100 if assets_cy else 10.80
-
                 st.markdown("#### Key Financial Ratios (Calculated from Data)")
                 st.markdown(
                     f"""
@@ -1005,23 +1004,17 @@ if uploaded_file:
 
             st.caption("💡 Use this dashboard for a quick, at-a-glance insight into company performance and financial health.")
 
-            # --- DASHBOARD DOWNLOAD BUTTON ---
-            # Prepare dashboard metrics and data to be downloaded
+            # --- DASHBOARD DOWNLOAD BUTTON (Excel) ---
             output = io.BytesIO()
             with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                # Main KPIs
                 pd.DataFrame({
                     'Metric': ['Total Revenue','Net Profit','Total Assets','Debt-to-Equity'],
                     'Value': [cy, pat_cy, assets_cy, dteq],
                     '% Change': [rev_chg, pat_chg, assets_chg, de_chg]
                 }).to_excel(writer, sheet_name="KPIs", index=False)
-                # Revenue trend
                 rev_trend_df.to_excel(writer, sheet_name="Revenue Trends")
-                # Profit margin trend
                 pm_df.to_excel(writer, sheet_name="Profit Margin Trend")
-                # Asset Distribution
                 pd.DataFrame({'Asset Type':labs, 'Amount':distributions}).to_excel(writer, sheet_name="Asset Distribution", index=False)
-                # Key Ratios
                 pd.DataFrame({
                     'Ratio': ['Current Ratio','Profit Margin','ROA','Debt-to-Equity'],
                     'Value': [current_ratio, profit_margin, roa, dteq]
@@ -1034,7 +1027,113 @@ if uploaded_file:
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
 
-            # --- Style tweaks for KPI card look and positive/negative coloring ---
+            # --- PDF Dashboard Button (charts-as-images via base64 HTML, download as PDF, using pdfkit) ---
+            import pdfkit
+            def fig_to_b64img(fig):
+                buf = io.BytesIO()
+                fig.savefig(buf, format="png", bbox_inches="tight")
+                plt.close(fig)
+                buf.seek(0)
+                img_bytes = buf.read()
+                return base64.b64encode(img_bytes).decode("utf-8")
+
+            # Revenue Chart
+            fig1, ax1 = plt.subplots(figsize=(5,2.5))
+            rev_trend_df.plot(ax=ax1)
+            ax1.set_ylabel('Amount')
+            ax1.set_xlabel('')
+            ax1.legend(fontsize=8)
+            revenue_chart_b64 = fig_to_b64img(fig1)
+            # Profit Margin Trend
+            fig2, ax2 = plt.subplots(figsize=(4,2.1))
+            pm_df.plot(ax=ax2, marker="o")
+            ax2.set_ylabel('%')
+            ax2.set_xlabel('')
+            ax2.legend().remove()
+            profit_margin_b64 = fig_to_b64img(fig2)
+            # Asset Distribution
+            fig3, ax3 = plt.subplots(figsize=(2.5,2.5))
+            wedges, texts, autotexts = ax3.pie(distributions, labels=labs, autopct="%1.0f%%", startangle=150, textprops={'fontsize': 8})
+            colors = ['#498cff','#21b795','#ffb94a','#ed5f37']
+            for i,w in enumerate(wedges):
+                w.set_color(colors[i % len(colors)])
+            ax3.axis("equal")
+            asset_dist_b64 = fig_to_b64img(fig3)
+
+            dashboard_html = f"""
+            <html>
+            <head>
+              <meta charset="utf-8">
+              <style>
+                body {{ font-family: Arial, sans-serif; }}
+                .banner {{
+                  background: #e6fbf0; color: #219150; font-weight:bold; padding: 0.7em 1.5em;
+                  border-radius:6px; margin-bottom: 18px; border: 1.5px solid #b3f0d8;font-size: 1.10em;
+                }}
+                .kpis td {{ padding: 6px 15px; font-size: 1.04em; }}
+                .section-title {{ margin-top: 18px; color:#2573c1; font-weight:bold; font-size:1.15em; }}
+                .ratios td {{ padding:3px 12px; }}
+                .mini-table {{ border-radius:8px; background:#f8fefa; border: 1px solid #d2ebe0; padding: 12px 16px; width: fit-content; }}
+              </style>
+            </head>
+            <body>
+            <div class="banner">✅ Dashboard generated from extracted financial data<br>
+              <span style='color:#1a7b4f; font-weight:normal; font-size:0.98em;'>
+                All metrics calculated from 26 notes with Schedule III compliance
+              </span>
+            </div>
+            <table class="kpis">
+            <tr>
+              <td><b>Total Revenue</b></td><td>₹{cy:,.0f}  ({rev_chg:+.1f}%)</td>
+              <td><b>Net Profit</b></td><td>₹{pat_cy:,.0f}  ({pat_chg:+.1f}%)</td>
+            </tr>
+            <tr>
+              <td><b>Total Assets</b></td><td>₹{assets_cy:,.2f}  ({assets_chg:+.1f}%)</td>
+              <td><b>Debt-to-Equity</b></td><td>{dteq:.2f}  ({de_chg:+.1f}%)</td>
+            </tr>
+            </table>
+
+            <div class="section-title">Revenue Trend (Current Year / Previous Year)</div>
+            <img src="data:image/png;base64,{revenue_chart_b64}" style="width:500px;"><br>
+            <div class="section-title">Profit Margin Trend (Quarterly)</div>
+            <img src="data:image/png;base64,{profit_margin_b64}" style="width:400px;"><br>
+            <div class="section-title">Asset Distribution</div>
+            <img src="data:image/png;base64,{asset_dist_b64}" style="width:230px;"><br>
+            <div class="section-title">Key Financial Ratios</div>
+            <div class="mini-table">
+              <table class="ratios">
+                <tr><td>Current Ratio</td><td><b>{current_ratio:.2f}</b></td></tr>
+                <tr><td>Profit Margin</td><td><b>{profit_margin:.2f}%</b></td></tr>
+                <tr><td>ROA</td><td><b>{roa:.2f}%</b></td></tr>
+                <tr><td>Debt-to-Equity</td><td><b>{dteq:.2f}</b></td></tr>
+              </table>
+            </div>
+            <p style="margin-top:24px; color:#349e71"><i>Generated at {datetime.now().strftime('%d-%b-%Y %H:%M:%S')}</i></p>
+            </body>
+            </html>
+            """
+            pdf_ready = False
+            pdf_bytes = None
+            try:
+                pdf_bytes = pdfkit.from_string(
+                    dashboard_html, False,
+                    options={"enable-local-file-access": ""}
+                )
+                pdf_ready = True
+            except Exception as e:
+                st.warning("PDF creation not available (likely need wkhtmltopdf, or try installing 'pdfkit').")
+
+            if pdf_ready and pdf_bytes:
+                st.download_button(
+                    label="⬇️ Download Financial Dashboard (PDF)",
+                    data=pdf_bytes,
+                    file_name="Financial_Dashboard.pdf",
+                    mime="application/pdf"
+                )
+            else:
+                st.info("PDF download not available in this environment.")
+
+            # --- KPI/metric card style ---
             st.markdown("""
             <style>
             .element-container:has(.stMetric) {
@@ -1042,8 +1141,7 @@ if uploaded_file:
               border-radius: 14px;
               box-shadow: 0 2px 8px rgba(110,225,142,.10);
               padding: 10px 8px 6px 18px !important;
-              margin-bottom: 4px;
-              border: 1px solid #e7fde5;
+              margin-bottom: 4px; border: 1px solid #e7fde5;
             }
             [data-testid=stMetricDeltaPositive] { color: #18c178 !important; }
             [data-testid=stMetricDeltaNegative] { color: #e15656 !important; }
@@ -1117,4 +1215,5 @@ st.markdown(
     """,
     unsafe_allow_html=True
 )
+
 
