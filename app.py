@@ -57,14 +57,6 @@ def write_notes_with_labels(writer, sheetname, notes_with_labels):
 # Add at the end of your function, just before return:
 #   return bs_out, pl_out, notes, totals, df_revenue, profit_margin_trend, asset_pie
 # ================================
-def process_financials(bs_df, pl_df):
-    # ---------- (rest of your code unchanged) ----------
-    # .... calculations, notes, and extracting figures and notes
-    # At the very end, before return, construct your visual data:
-
-    # ===============================
-# Main financial data processing function
-# ===============================
 
 def process_financials(bs_df, pl_df):
     L, A = 'LIABILITIES', 'ASSETS'
