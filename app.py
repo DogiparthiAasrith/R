@@ -169,608 +169,754 @@ def write_notes_with_labels(writer, sheetname, notes_with_labels):
 # ===============================
 
 def process_financials(bs_df, pl_df):
-    """
-    Process financial data with improved error handling and flexible column detection
-    """
-    try:
-        print("\nProcessing financial data...")
-        print(f"BS DataFrame shape: {bs_df.shape}")
-        print(f"PL DataFrame shape: {pl_df.shape}")
-        print(f"BS columns: {list(bs_df.columns)}")
-        print(f"PL columns: {list(pl_df.columns)}")
-        
-        # Detect column names dynamically
-        bs_liability_col = None
-        bs_asset_col = None
-        
-        # Find liability/asset columns
-        for col in bs_df.columns:
-            col_str = str(col).upper()
-            if any(word in col_str for word in ['LIABIL', 'LIABILITY', 'LIAB']):
-                bs_liability_col = col
-            elif any(word in col_str for word in ['ASSET', 'ASSETS']):
-                bs_asset_col = col
-        
-        # Fallback to first two non-numeric columns
-        if bs_liability_col is None:
-            bs_liability_col = bs_df.columns[0]
-        if bs_asset_col is None and len(bs_df.columns) > 1:
-            bs_asset_col = bs_df.columns[0]  # Use same as liability for single column format
-        
-        print(f"Using BS liability column: {bs_liability_col}")
-        print(f"Using BS asset column: {bs_asset_col}")
-        
-        L, A = bs_liability_col, bs_asset_col
-
-        # Share capital and authorised capital
-        capital_row = safeval(bs_df, L, "Capital Account")
-        if capital_row.empty:
-            capital_row = safeval(bs_df, L, "Share Capital")
-        if capital_row.empty:
-            capital_row = safeval(bs_df, L, "Equity")
-            
-        share_cap_cy = num(capital_row.get('CY (₹)', 0)) if not capital_row.empty else 100000
-        share_cap_py = num(capital_row.get('PY (₹)', 0)) if not capital_row.empty else 100000
-        
-        # If no separate CY/PY columns, try to get from any numeric column
-        if share_cap_cy == 0 and not capital_row.empty:
-            for col in bs_df.columns:
-                if pd.api.types.is_numeric_dtype(bs_df[col]):
-                    val = num(capital_row.get(col, 0))
-                    if val > 0:
-                        share_cap_cy = val
-                        break
-        
-        authorised_cap = max(share_cap_cy, share_cap_py) * 1.2  # 20% buffer
-
-        # Reserves and Surplus with flexible search
-        gr_row = safeval(bs_df, L, "General Reserve")
-        if gr_row.empty:
-            gr_row = safeval(bs_df, L, "Reserve")
-            
-        general_res_cy = num(gr_row.get('CY (₹)', 0)) if not gr_row.empty else 50000
-        general_res_py = num(gr_row.get('PY (₹)', 0)) if not gr_row.empty else 45000
-
-        surplus_row = safeval(bs_df, L, "Retained Earnings")
-        if surplus_row.empty:
-            surplus_row = safeval(bs_df, L, "Surplus")
-        if surplus_row.empty:
-            surplus_row = safeval(bs_df, L, "Profit")
-            
-        surplus_cy = num(surplus_row.get('CY (₹)', 0)) if not surplus_row.empty else 75000
-        surplus_py = num(surplus_row.get('PY (₹)', 0)) if not surplus_row.empty else 65000
-        surplus_open_cy = surplus_py  # Opening balance = PY closing
-        surplus_open_py = 70000       # Prior year opening balance fixed
-
-        profit_row = safeval(bs_df, L, "Add: Current Year Profit")
-        if profit_row.empty:
-            profit_row = safeval(bs_df, L, "Current Year Profit")
-        if profit_row.empty:
-            profit_row = safeval(bs_df, L, "Profit")
-            
-        profit_cy = num(profit_row.get('CY (₹)', 0)) if not profit_row.empty else 25000
-        profit_py = num(profit_row.get('PY (₹)', 0)) if not profit_row.empty else 20000
-
-        pd_row = safeval(bs_df, L, "Proposed Dividend")
-        if pd_row.empty:
-            pd_row = safeval(bs_df, L, "Dividend")
-            
-        pd_cy = num(pd_row.get('CY (₹)', 0)) if not pd_row.empty else 0
-        pd_py = num(pd_row.get('PY (₹)', 0)) if not pd_row.empty else 0
-
-        surplus_close_cy = surplus_cy + profit_cy
-        surplus_close_py = surplus_py + profit_py
-
-        reserves_total_cy = general_res_cy + surplus_close_cy
-        reserves_total_py = general_res_py + surplus_close_py
-
-        # Continue with similar flexible approach for other items...
-        # Long-term borrowings with flexible search
-        tl_row = safeval(bs_df, L, "Term Loan")
-        if tl_row.empty:
-            tl_row = safeval(bs_df, L, "Bank Loan")
-        tl_cy = num(tl_row.get('CY (₹)', 0)) if not tl_row.empty else 0
-        tl_py = num(tl_row.get('PY (₹)', 0)) if not tl_row.empty else 0
-
-        vl_row = safeval(bs_df, L, "Vehicle Loan")
-        vl_cy = num(vl_row.get('CY (₹)', 0)) if not vl_row.empty else 0
-        vl_py = num(vl_row.get('PY (₹)', 0)) if not vl_row.empty else 0
-
-        fd_row = safeval(bs_df, L, "From Directors")
-        if fd_row.empty:
-            fd_row = safeval(bs_df, L, "Directors")
-        fd_cy = num(fd_row.get('CY (₹)', 0)) if not fd_row.empty else 0
-        fd_py = num(fd_row.get('PY (₹)', 0)) if not fd_row.empty else 0
-
-        icb_row = safeval(bs_df, L, "Inter-Corporate")
-        if icb_row.empty:
-            icb_row = safeval(bs_df, L, "Corporate Borrowing")
-        icb_cy = num(icb_row.get('CY (₹)', 0)) if not icb_row.empty else 0
-        icb_py = num(icb_row.get('PY (₹)', 0)) if not icb_row.empty else 0
-
-        longterm_borrow_cy = tl_cy + vl_cy
-        longterm_borrow_py = tl_py + vl_py
-        other_longterm_liab_cy = fd_cy + icb_cy
-        other_longterm_liab_py = fd_py + icb_py
-
-        # Long-term provisions (no data)
-        longterm_prov_cy = 0
-        longterm_prov_py = 0
-
-        # Short-term borrowings (no data)
-        shortterm_borrow_cy = 0
-        shortterm_borrow_py = 0
-
-        # Trade payables with flexible search
-        sc_row = safeval(bs_df, L, "Sundry Creditors")
-        if sc_row.empty:
-            sc_row = safeval(bs_df, L, "Creditors")
-        if sc_row.empty:
-            sc_row = safeval(bs_df, L, "Trade Payable")
-        creditors_cy = num(sc_row.get('CY (₹)', 0)) if not sc_row.empty else 30000
-        creditors_py = num(sc_row.get('PY (₹)', 0)) if not sc_row.empty else 25000
-
-        # Other current liabilities
-        bp_row = safeval(bs_df, L, "Bills Payable")
-        oe_row = safeval(bs_df, L, "Outstanding Expenses")
-        if oe_row.empty:
-            oe_row = safeval(bs_df, L, "Outstanding")
-
-        bp_cy = num(bp_row.get('CY (₹)', 0)) if not bp_row.empty else 0
-        bp_py = num(bp_row.get('PY (₹)', 0)) if not bp_row.empty else 0
-        oe_cy = num(oe_row.get('CY (₹)', 0)) if not oe_row.empty else 15000
-        oe_py = num(oe_row.get('PY (₹)', 0)) if not oe_row.empty else 12000
-
-        other_cur_liab_cy = bp_cy + oe_cy + pd_cy
-        other_cur_liab_py = bp_py + oe_py + pd_py
-
-        # Short-Term Provisions (Note 9)
-        tax_row = safeval(bs_df, L, "Provision for Taxation")
-        if tax_row.empty:
-            tax_row = safeval(bs_df, L, "Tax")
-        if tax_row.empty:
-            tax_row = safeval(bs_df, L, "Taxation")
-        tax_cy = num(tax_row.get('CY (₹)', 0)) if not tax_row.empty else 8000
-        tax_py = num(tax_row.get('PY (₹)', 0)) if not tax_row.empty else 7000
-
-        # Assets side with flexible search
-        land_row = safeval(bs_df, A, "Land")
-        plant_row = safeval(bs_df, A, "Plant")
-        if plant_row.empty:
-            plant_row = safeval(bs_df, A, "Machinery")
-        furn_row = safeval(bs_df, A, "Furniture")
-        comp_row = safeval(bs_df, A, "Computer")
-
-        land_cy = num(land_row.get('CY (₹)', 0)) if not land_row.empty else 150000
-        plant_cy = num(plant_row.get('CY (₹)', 0)) if not plant_row.empty else 200000
-        furn_cy = num(furn_row.get('CY (₹)', 0)) if not furn_row.empty else 50000
-        comp_cy = num(comp_row.get('CY (₹)', 0)) if not comp_row.empty else 40000
-
-        land_py = num(land_row.get('PY (₹)', 0)) if not land_row.empty else 150000
-        plant_py = num(plant_row.get('PY (₹)', 0)) if not plant_row.empty else 180000
-        furn_py = num(furn_row.get('PY (₹)', 0)) if not furn_row.empty else 45000
-        comp_py = num(comp_row.get('PY (₹)', 0)) if not comp_row.empty else 35000
-
-        gross_block_cy = land_cy + plant_cy + furn_cy + comp_cy
-        gross_block_py = land_py + plant_py + furn_py + comp_py
-
-        ad_row = safeval(bs_df, A, "Accumulated Depreciation")
-        if ad_row.empty:
-            ad_row = safeval(bs_df, A, "Depreciation")
-        acc_dep_cy = -num(ad_row.get('CY (₹)', 0)) if not ad_row.empty else -50000
-        acc_dep_py = -num(ad_row.get('PY (₹)', 0)) if not ad_row.empty else -40000
-
-        net_ppe_row = safeval(bs_df, A, "Net Fixed Assets")
-        if net_ppe_row.empty:
-            net_ppe_row = safeval(bs_df, A, "Fixed Assets")
-        net_ppe_cy = num(net_ppe_row.get('CY (₹)', 0)) if not net_ppe_row.empty else (gross_block_cy + acc_dep_cy)
-        net_ppe_py = num(net_ppe_row.get('PY (₹)', 0)) if not net_ppe_row.empty else (gross_block_py + acc_dep_py)
-
-        # Continue with remaining assets...
-        cwip_cy = 0
-        cwip_py = 0
-
-        # Non-current Investments
-        eq_row = safeval(bs_df, A, "Equity Shares")
-        mf_row = safeval(bs_df, A, "Mutual Funds")
-        
-        eq_cy = num(eq_row.get('CY (₹)', 0)) if not eq_row.empty else 0
-        eq_py = num(eq_row.get('PY (₹)', 0)) if not eq_row.empty else 0
-        mf_cy = num(mf_row.get('CY (₹)', 0)) if not mf_row.empty else 0
-        mf_py = num(mf_row.get('PY (₹)', 0)) if not mf_row.empty else 0
-
-        investments_cy = eq_cy + mf_cy
-        investments_py = eq_py + mf_py
-
-        # Continue with other asset items...
-        dta_cy = 0
-        dta_py = 0
-
-        longterm_loans_cy = 0
-        longterm_loans_py = 0
-
-        prelim_exp_row = safeval(bs_df, A, "Preliminary Expenses")
-        prelim_exp_cy = num(prelim_exp_row.get('CY (₹)', 0)) if not prelim_exp_row.empty else 0
-        prelim_exp_py = num(prelim_exp_row.get('PY (₹)', 0)) if not prelim_exp_row.empty else 0
-
-        current_inv_cy = 0
-        current_inv_py = 0
-
-        # Inventories
-        stock_row = safeval(bs_df, A, "Stock")
-        if stock_row.empty:
-            stock_row = safeval(bs_df, A, "Inventory")
-        stock_cy = num(stock_row.get('CY (₹)', 0)) if not stock_row.empty else 80000
-        stock_py = num(stock_row.get('PY (₹)', 0)) if not stock_row.empty else 75000
-
-        # Trade Receivables
-        deb_row = safeval(bs_df, A, "Sundry Debtors")
-        if deb_row.empty:
-            deb_row = safeval(bs_df, A, "Debtors")
-        if deb_row.empty:
-            deb_row = safeval(bs_df, A, "Receivable")
-        deb_cy = num(deb_row.get('CY (₹)', 0)) if not deb_row.empty else 120000
-        deb_py = num(deb_row.get('PY (₹)', 0)) if not deb_row.empty else 100000
-
-        provd_row = safeval(bs_df, A, "Provision for Doubtful")
-        provd_cy = num(provd_row.get('CY (₹)', 0)) if not provd_row.empty else 0
-        provd_py = num(provd_row.get('PY (₹)', 0)) if not provd_row.empty else 0
-
-        bills_recv_row = safeval(bs_df, A, "Bills Receivable")
-        bills_recv_cy = num(bills_recv_row.get('CY (₹)', 0)) if not bills_recv_row.empty else 0
-        bills_recv_py = num(bills_recv_row.get('PY (₹)', 0)) if not bills_recv_row.empty else 0
-
-        total_receivables_cy = deb_cy + bills_recv_cy
-        total_receivables_py = deb_py + bills_recv_py
-        net_receivables_cy = total_receivables_cy + provd_cy
-        net_receivables_py = total_receivables_py + provd_py
-
-        # Cash & Bank
-        cash_row = safeval(bs_df, A, "Cash")
-        bank_row = safeval(bs_df, A, "Bank")
-
-        cash_cy = num(cash_row.get('CY (₹)', 0)) if not cash_row.empty else 15000
-        cash_py = num(cash_row.get('PY (₹)', 0)) if not cash_row.empty else 12000
-        bank_cy = num(bank_row.get('CY (₹)', 0)) if not bank_row.empty else 45000
-        bank_py = num(bank_row.get('PY (₹)', 0)) if not bank_row.empty else 40000
-
-        cash_total_cy = cash_cy + bank_cy
-        cash_total_py = cash_py + bank_py
-
-        # Short-term Loans/Advances
-        loan_adv_row = safeval(bs_df, A, "Loans & Advances")
-        if loan_adv_row.empty:
-            loan_adv_row = safeval(bs_df, A, "Advances")
-        loan_adv_cy = num(loan_adv_row.get('CY (₹)', 0)) if not loan_adv_row.empty else 25000
-        loan_adv_py = num(loan_adv_row.get('PY (₹)', 0)) if not loan_adv_row.empty else 20000
-
-        # Other Current Assets
-        prepaid_row = safeval(bs_df, A, "Prepaid")
-        prepaid_cy = num(prepaid_row.get('CY (₹)', 0)) if not prepaid_row.empty else 8000
-        prepaid_py = num(prepaid_row.get('PY (₹)', 0)) if not prepaid_row.empty else 7000
-
-        # Calculate totals for verification
-        total_equity_liab_cy = (
-            share_cap_cy + reserves_total_cy + longterm_borrow_cy + other_longterm_liab_cy +
-            longterm_prov_cy + shortterm_borrow_cy + creditors_cy + other_cur_liab_cy + tax_cy)
-        total_equity_liab_py = (
-            share_cap_py + reserves_total_py + longterm_borrow_py + other_longterm_liab_py +
-            longterm_prov_py + shortterm_borrow_py + creditors_py + other_cur_liab_py + tax_py)
-
-        total_assets_cy = (
-            net_ppe_cy + cwip_cy + investments_cy + dta_cy + longterm_loans_cy + prelim_exp_cy +
-            current_inv_cy + stock_cy + net_receivables_cy + cash_total_cy + loan_adv_cy + prepaid_cy)
-        total_assets_py = (
-            net_ppe_py + cwip_py + investments_py + dta_py + longterm_loans_py + prelim_exp_py +
-            current_inv_py + stock_py + net_receivables_py + cash_total_py + loan_adv_py + prepaid_py)
-
-        print(f"Total Assets CY: {total_assets_cy}, Total Liabilities CY: {total_equity_liab_cy}")
-
-        # ===============================
-        # Process PROFIT & LOSS with flexible column detection
-        # ===============================
-        
-        # Detect P&L columns
-        pl_dr_col = None
-        pl_cr_col = None
-        
-        for col in pl_df.columns:
-            col_str = str(col).upper()
-            if any(word in col_str for word in ['DR', 'DEBIT', 'EXPENSE', 'PATICULAR']):
-                pl_dr_col = col
-            elif any(word in col_str for word in ['CR', 'CREDIT', 'INCOME', 'REVENUE']):
-                pl_cr_col = col
-        
-        # Fallback
-        if pl_dr_col is None:
-            pl_dr_col = pl_df.columns[0] if len(pl_df.columns) > 0 else 'Particulars'
-        if pl_cr_col is None:
-            pl_cr_col = pl_df.columns[1] if len(pl_df.columns) > 1 else pl_dr_col
-        
-        print(f"Using PL debit column: {pl_dr_col}")
-        print(f"Using PL credit column: {pl_cr_col}")
-
-        # Process P&L items with flexible search
-        sales_row = safeval(pl_df, pl_cr_col, "Sales")
-        if sales_row.empty:
-            sales_row = safeval(pl_df, pl_cr_col, "Revenue")
-        sales_cy = num(sales_row.get('CY (₹)', 0)) if not sales_row.empty else 500000
-        sales_py = num(sales_row.get('PY (₹)', 0)) if not sales_row.empty else 450000
-
-        sales_ret_row = safeval(pl_df, pl_cr_col, "Sales Returns")
-        if sales_ret_row.empty:
-            sales_ret_row = safeval(pl_df, pl_cr_col, "Returns")
-        sales_ret_cy = num(sales_ret_row.get('CY (₹)', 0)) if not sales_ret_row.empty else 0
-        sales_ret_py = num(sales_ret_row.get('PY (₹)', 0)) if not sales_ret_row.empty else 0
-
-        net_sales_cy = sales_cy + sales_ret_cy
-        net_sales_py = sales_py + sales_ret_py
-
-        # Other Income
-        oi_row = safeval(pl_df, pl_cr_col, "Other Operating Income")
-        if oi_row.empty:
-            oi_row = safeval(pl_df, pl_cr_col, "Other Income")
-        oi_cy = num(oi_row.get('CY (₹)', 0)) if not oi_row.empty else 5000
-        oi_py = num(oi_row.get('PY (₹)', 0)) if not oi_row.empty else 4000
-
-        int_row = safeval(pl_df, pl_cr_col, "Interest Income")
-        if int_row.empty:
-            int_row = safeval(pl_df, pl_cr_col, "Interest")
-        int_cy = num(int_row.get('CY (₹)', 0)) if not int_row.empty else 2000
-        int_py = num(int_row.get('PY (₹)', 0)) if not int_row.empty else 1500
-
-        other_inc_cy = oi_cy + int_cy
-        other_inc_py = oi_py + int_py
-
-        # Cost of Materials with flexible search
-        purch_row = safeval(pl_df, pl_dr_col, "Purchases")
-        if purch_row.empty:
-            purch_row = safeval(pl_df, pl_dr_col, "Purchase")
-        purch_cy = num(purch_row.get('CY (₹)', 0)) if not purch_row.empty else 200000
-        purch_py = num(purch_row.get('PY (₹)', 0)) if not purch_row.empty else 180000
-
-        purch_ret_row = safeval(pl_df, pl_dr_col, "Purchase Returns")
-        purch_ret_cy = num(purch_ret_row.get('CY (₹)', 0)) if not purch_ret_row.empty else 0
-        purch_ret_py = num(purch_ret_row.get('PY (₹)', 0)) if not purch_ret_row.empty else 0
-
-        wages_row = safeval(pl_df, pl_dr_col, "Wages")
-        wages_cy = num(wages_row.get('CY (₹)', 0)) if not wages_row.empty else 80000
-        wages_py = num(wages_row.get('PY (₹)', 0)) if not wages_row.empty else 75000
-
-        power_row = safeval(pl_df, pl_dr_col, "Power")
-        if power_row.empty:
-            power_row = safeval(pl_df, pl_dr_col, "Fuel")
-        power_cy = num(power_row.get('CY (₹)', 0)) if not power_row.empty else 25000
-        power_py = num(power_row.get('PY (₹)', 0)) if not power_row.empty else 22000
-
-        freight_row = safeval(pl_df, pl_dr_col, "Freight")
-        freight_cy = num(freight_row.get('CY (₹)', 0)) if not freight_row.empty else 10000
-        freight_py = num(freight_row.get('PY (₹)', 0)) if not freight_row.empty else 9000
-
-        cost_mat_cy = purch_cy + purch_ret_cy + wages_cy + power_cy + freight_cy
-        cost_mat_py = purch_py + purch_ret_py + wages_py + power_py + freight_py
-
-        # Changes in Inventories
-        os_row = safeval(pl_df, pl_dr_col, "Opening Stock")
-        os_cy = num(os_row.get('CY (₹)', 0)) if not os_row.empty else 75000
-        os_py = num(os_row.get('PY (₹)', 0)) if not os_row.empty else 70000
-
-        cs_row = safeval(pl_df, pl_cr_col, "Closing Stock")
-        cs_cy = num(cs_row.get('CY (₹)', 0)) if not cs_row.empty else stock_cy
-        cs_py = num(cs_row.get('PY (₹)', 0)) if not cs_row.empty else stock_py
-
-        change_inv_cy = cs_cy - os_cy
-        change_inv_py = cs_py - os_py
-
-        # Employee Benefits
-        sal_row = safeval(pl_df, pl_dr_col, "Salaries")
-        if sal_row.empty:
-            sal_row = safeval(pl_df, pl_dr_col, "Salary")
-        sal_cy = num(sal_row.get('CY (₹)', 0)) if not sal_row.empty else 60000
-        sal_py = num(sal_row.get('PY (₹)', 0)) if not sal_row.empty else 55000
-
-        # Finance Costs
-        loan_int_row = safeval(pl_df, pl_dr_col, "Interest on Loans")
-        if loan_int_row.empty:
-            loan_int_row = safeval(pl_df, pl_dr_col, "Interest")
-        loan_int_cy = num(loan_int_row.get('CY (₹)', 0)) if not loan_int_row.empty else 5000
-        loan_int_py = num(loan_int_row.get('PY (₹)', 0)) if not loan_int_row.empty else 4500
-
-        # Depreciation
-        dep_row = safeval(pl_df, pl_dr_col, "Depreciation")
-        dep_cy = num(dep_row.get('CY (₹)', 0)) if not dep_row.empty else 15000
-        dep_py = num(dep_row.get('PY (₹)', 0)) if not dep_row.empty else 14000
-
-        # Other expenses with default values if not found
-        rent_cy = num(safeval(pl_df, pl_dr_col, "Rent").get('CY (₹)', 0)) or 20000
-        rent_py = num(safeval(pl_df, pl_dr_col, "Rent").get('PY (₹)', 0)) or 18000
-        
-        admin_cy = num(safeval(pl_df, pl_dr_col, "Administrative").get('CY (₹)', 0)) or 15000
-        admin_py = num(safeval(pl_df, pl_dr_col, "Administrative").get('PY (₹)', 0)) or 14000
-        
-        selling_cy = num(safeval(pl_df, pl_dr_col, "Selling").get('CY (₹)', 0)) or 12000
-        selling_py = num(safeval(pl_df, pl_dr_col, "Selling").get('PY (₹)', 0)) or 11000
-        
-        repairs_cy = num(safeval(pl_df, pl_dr_col, "Repairs").get('CY (₹)', 0)) or 8000
-        repairs_py = num(safeval(pl_df, pl_dr_col, "Repairs").get('PY (₹)', 0)) or 7500
-        
-        insurance_cy = num(safeval(pl_df, pl_dr_col, "Insurance").get('CY (₹)', 0)) or 6000
-        insurance_py = num(safeval(pl_df, pl_dr_col, "Insurance").get('PY (₹)', 0)) or 5500
-        
-        audit_cy = num(safeval(pl_df, pl_dr_col, "Audit").get('CY (₹)', 0)) or 5000
-        audit_py = num(safeval(pl_df, pl_dr_col, "Audit").get('PY (₹)', 0)) or 5000
-        
-        bad_cy = num(safeval(pl_df, pl_dr_col, "Bad Debts").get('CY (₹)', 0)) or 0
-        bad_py = num(safeval(pl_df, pl_dr_col, "Bad Debts").get('PY (₹)', 0)) or 0
-
-        other_exp_cy = rent_cy + admin_cy + selling_cy + repairs_cy + insurance_cy + audit_cy + bad_cy
-        other_exp_py = rent_py + admin_py + selling_py + repairs_py + insurance_py + audit_py + bad_py
-
-        # Calculate totals
-        total_rev_cy = net_sales_cy + other_inc_cy
-        total_rev_py = net_sales_py + other_inc_py
-
-        total_exp_cy = cost_mat_cy + change_inv_cy + sal_cy + loan_int_cy + dep_cy + other_exp_cy
-        total_exp_py = cost_mat_py + change_inv_py + sal_py + loan_int_py + dep_py + other_exp_py
-
-        pbt_cy = total_rev_cy - total_exp_cy
-        pbt_py = total_rev_py - total_exp_py
-
-        pat_cy = pbt_cy - tax_cy
-        pat_py = pbt_py - tax_py
-
-        num_shares = share_cap_cy / 10 if share_cap_cy > 0 else 10000
-        eps_cy = pat_cy / num_shares if num_shares > 0 else 0
-        eps_py = pat_py / num_shares if num_shares > 0 else 0
-
-        print(f"Financial processing completed successfully")
-        print(f"Total Revenue CY: {total_rev_cy}, PAT CY: {pat_cy}")
-
-        # Create Balance Sheet output
-        bs_out = pd.DataFrame([
-            ['Particulars', 'Note No.', 'CY (₹)', 'PY (₹)'],
-            ['EQUITY AND LIABILITIES', '', '', ''],
-            ['1. Shareholders Funds', '', '', ''],
-            ['(a) Share Capital', 1, share_cap_cy, share_cap_py],
-            ['(b) Reserves and Surplus', 2, reserves_total_cy, reserves_total_py],
-            ['2. Non-Current Liabilities', '', '', ''],
-            ['(a) Long-Term Borrowings', 3, longterm_borrow_cy, longterm_borrow_py],
-            ['(b) Deferred Tax Liabilities (Net)', 4, 0, 0],
-            ['(c) Other Long-Term Liabilities', 5, other_longterm_liab_cy, other_longterm_liab_py],
-            ['(d) Long-Term Provisions', 6, longterm_prov_cy, longterm_prov_py],
-            ['3. Current Liabilities', '', '', ''],
-            ['(a) Short-Term Borrowings', 7, shortterm_borrow_cy, shortterm_borrow_py],
-            ['(b) Trade Payables', 8, creditors_cy, creditors_py],
-            ['(c) Other Current Liabilities', 9, other_cur_liab_cy, other_cur_liab_py],
-            ['(d) Short-Term Provisions', 10, tax_cy, tax_py],
-            ['TOTAL', '', total_equity_liab_cy, total_equity_liab_py],
-            ['ASSETS', '', '', ''],
-            ['1. Non-Current Assets', '', '', ''],
-            ['(a) Fixed Assets', '', '', ''],
-            ['     (i) Tangible Assets', 11, net_ppe_cy, net_ppe_py],
-            ['     (ii) Intangible Assets', 12, 0, 0],
-            ['     (iii) Capital Work-in-Progress', 13, cwip_cy, cwip_py],
-            ['(b) Non-Current Investments', 14, investments_cy, investments_py],
-            ['(c) Deferred Tax Assets (Net)', 15, dta_cy, dta_py],
-            ['(d) Long-Term Loans and Advances', 16, longterm_loans_cy, longterm_loans_py],
-            ['(e) Other Non-Current Assets', 17, prelim_exp_cy, prelim_exp_py],
-            ['2. Current Assets', '', '', ''],
-            ['(a) Current Investments', 18, current_inv_cy, current_inv_py],
-            ['(b) Inventories', 19, stock_cy, stock_py],
-            ['(c) Trade Receivables', 20, net_receivables_cy, net_receivables_py],
-            ['(d) Cash and Cash Equivalents', 21, cash_total_cy, cash_total_py],
-            ['(e) Short-Term Loans and Advances', 22, loan_adv_cy, loan_adv_py],
-            ['(f) Other Current Assets', 23, prepaid_cy, prepaid_py],
-            ['TOTAL', '', total_assets_cy, total_assets_py]
-        ])
-
-        # Create P&L output
-        pl_out = pd.DataFrame([
-            ['Particulars', 'Note No.', 'CY (₹)', 'PY (₹)'],
-            ['I. Revenue from Operations', 24, net_sales_cy, net_sales_py],
-            ['II. Other Income', 25, other_inc_cy, other_inc_py],
-            ['III. Total Revenue (I + II)', '', total_rev_cy, total_rev_py],
-            ['IV. Expenses', '', '', ''],
-            ['(a) Cost of Materials Consumed', 26, cost_mat_cy, cost_mat_py],
-            ['(b) Changes in Inventories of Finished Goods', '', change_inv_cy, change_inv_py],
-            ['(c) Employee Benefits Expense', '', sal_cy, sal_py],
-            ['(d) Finance Costs', '', loan_int_cy, loan_int_py],
-            ['(e) Depreciation and Amortization Expense', '', dep_cy, dep_py],
-            ['(f) Other Expenses', '', other_exp_cy, other_exp_py],
-            ['Total Expenses', '', total_exp_cy, total_exp_py],
-            ['V. Profit Before Tax (III - IV)', '', pbt_cy, pbt_py],
-            ['VI. Tax Expense', '', '', ''],
-            ['(a) Current Tax', '', tax_cy, tax_py],
-            ['VII. Profit for the Period (V - VI)', '', pat_cy, pat_py],
-            ['VIII. Earnings per Equity Share (Basic & Diluted)', '', eps_cy, eps_py]
-        ])
-
-        # Create simplified notes for demo
-        notes = create_simplified_notes(
-            share_cap_cy, share_cap_py, general_res_cy, general_res_py, 
-            surplus_cy, surplus_py, profit_cy, profit_py, pd_cy, pd_py,
-            longterm_borrow_cy, longterm_borrow_py, creditors_cy, creditors_py,
-            tax_cy, tax_py, net_ppe_cy, net_ppe_py, investments_cy, investments_py,
-            stock_cy, stock_py, net_receivables_cy, net_receivables_py,
-            cash_total_cy, cash_total_py, loan_adv_cy, loan_adv_py, 
-            prepaid_cy, prepaid_py, net_sales_cy, net_sales_py,
-            other_inc_cy, other_inc_py, cost_mat_cy, cost_mat_py
-        )
-
-        totals = {
-            "total_assets_cy": total_assets_cy,
-            "total_equity_liab_cy": total_equity_liab_cy,
-            "total_rev_cy": total_rev_cy,
-            "pat_cy": pat_cy,
-            "eps_cy": eps_cy,
-            "eps_py": eps_py
-        }
-
-        return bs_out, pl_out, notes, totals
-
-    except Exception as e:
-        print(f"Error in process_financials: {e}")
-        # Return default data structure to prevent complete failure
-        return create_default_financial_data()
-
-def create_simplified_notes(*args):
-    """Create simplified notes structure"""
-    # Simplified version of notes creation
-    # This would include all 26 notes but simplified for brevity
-    notes = []
-    
-    # Add basic notes structure
-    for i in range(1, 27):
-        note_name = f"Note {i}: Financial Item {i}"
-        note_df = pd.DataFrame({
-            'Particulars': [f'Item {i}'],
-            'CY (₹)': [0],
-            'PY (₹)': [0]
-        })
-        notes.append((note_name, note_df))
-    
-    return notes
-
-def create_default_financial_data():
-    """Create default financial data structure in case of processing errors"""
-    
-    # Default Balance Sheet
+    L, A = 'LIABILITIES', 'ASSETS'
+
+    # Share capital and authorised capital
+    capital_row = safeval(bs_df, L, "Capital Account")
+    share_cap_cy = num(capital_row.get('CY (₹)', 0))
+    share_cap_py = num(capital_row.get('PY (₹)', 0))
+    authorised_cap = max(share_cap_cy, share_cap_py) * 1.2  # 20% buffer
+
+    # Reserves and Surplus
+    gr_row = safeval(bs_df, L, "General Reserve")
+    general_res_cy = num(gr_row.get('CY (₹)', 0))
+    general_res_py = num(gr_row.get('PY (₹)', 0))
+
+    surplus_row = safeval(bs_df, L, "Retained Earnings")
+    surplus_cy = num(surplus_row.get('CY (₹)', 0))
+    surplus_py = num(surplus_row.get('PY (₹)', 0))
+    surplus_open_cy = surplus_py  # Opening balance = PY closing
+    surplus_open_py = 70000       # Prior year opening balance fixed
+
+    profit_row = safeval(bs_df, L, "Add: Current Year Profit")
+    profit_cy = num(profit_row.get('CY (₹)', 0))
+    profit_py = num(profit_row.get('PY (₹)', 0))
+
+    pd_row = safeval(bs_df, L, "Proposed Dividend")
+    pd_cy = num(pd_row.get('CY (₹)', 0))
+    pd_py = num(pd_row.get('PY (₹)', 0))
+
+    surplus_close_cy = surplus_cy + profit_cy
+    surplus_close_py = surplus_py + profit_py
+
+    reserves_total_cy = general_res_cy + surplus_close_cy
+    reserves_total_py = general_res_py + surplus_close_py
+
+    # Long-term borrowings
+    tl_row = safeval(bs_df, L, "Term Loan from Bank")
+    vl_row = safeval(bs_df, L, "Vehicle Loan")
+    fd_row = safeval(bs_df, L, "From Directors")
+    icb_row = safeval(bs_df, L, "Inter-Corporate Borrowings")
+
+    tl_cy = num(tl_row.get('CY (₹)', 0))
+    tl_py = num(tl_row.get('PY (₹)', 0))
+    vl_cy = num(vl_row.get('CY (₹)', 0))
+    vl_py = num(vl_row.get('PY (₹)', 0))
+    fd_cy = num(fd_row.get('CY (₹)', 0))
+    fd_py = num(fd_row.get('PY (₹)', 0))
+    icb_cy = num(icb_row.get('CY (₹)', 0))
+    icb_py = num(icb_row.get('PY (₹)', 0))
+
+    longterm_borrow_cy = tl_cy + vl_cy
+    longterm_borrow_py = tl_py + vl_py
+    other_longterm_liab_cy = fd_cy + icb_cy
+    other_longterm_liab_py = fd_py + icb_py
+
+    # Long-term provisions (no data)
+    longterm_prov_cy = 0
+    longterm_prov_py = 0
+
+    # Short-term borrowings (no data)
+    shortterm_borrow_cy = 0
+    shortterm_borrow_py = 0
+
+    # Trade payables
+    sc_row = safeval(bs_df, L, "Sundry Creditors")
+    creditors_cy = num(sc_row.get('CY (₹)', 0))
+    creditors_py = num(sc_row.get('PY (₹)', 0))
+
+    # Other current liabilities
+    bp_row = safeval(bs_df, L, "Bills Payable")
+    oe_row = safeval(bs_df, L, "Outstanding Expenses")
+
+    bp_cy = num(bp_row.get('CY (₹)', 0))
+    bp_py = num(bp_row.get('PY (₹)', 0))
+    oe_cy = num(oe_row.get('CY (₹)', 0))
+    oe_py = num(oe_row.get('PY (₹)', 0))
+
+    other_cur_liab_cy = bp_cy + oe_cy + pd_cy
+    other_cur_liab_py = bp_py + oe_py + pd_py
+
+    # Short-Term Provisions (Note 9)
+    tax_row = safeval(bs_df, L, "Provision for Taxation")
+    tax_cy = num(tax_row.get('CY (₹)', 0))
+    tax_py = num(tax_row.get('PY (₹)', 0))
+
+    # PPE (Note 10)
+    land_cy = num(safeval(bs_df, A, "Land").get('CY (₹)', 0))
+    plant_cy = num(safeval(bs_df, A, "Plant").get('CY (₹)', 0))
+    furn_cy = num(safeval(bs_df, A, "Furniture").get('CY (₹)', 0))
+    comp_cy = num(safeval(bs_df, A, "Computer").get('CY (₹)', 0))
+
+    land_py = num(safeval(bs_df, A, "Land").get('PY (₹)', 0))
+    plant_py = num(safeval(bs_df, A, "Plant").get('PY (₹)', 0))
+    furn_py = num(safeval(bs_df, A, "Furniture").get('PY (₹)', 0))
+    comp_py = num(safeval(bs_df, A, "Computer").get('PY (₹)', 0))
+
+    gross_block_cy = land_cy + plant_cy + furn_cy + comp_cy
+    gross_block_py = land_py + plant_py + furn_py + comp_py
+
+    ad_row = safeval(bs_df, A, "Accumulated Depreciation")
+    acc_dep_cy = -num(ad_row.get('CY (₹)', 0))
+    acc_dep_py = -num(ad_row.get('PY (₹)', 0))
+
+    net_ppe_cy = num(safeval(bs_df, A, "Net Fixed Assets").get('CY (₹)', 0))
+    net_ppe_py = num(safeval(bs_df, A, "Net Fixed Assets").get('PY (₹)', 0))
+
+    # Capital Work-in-Progress (Note 11)
+    cwip_cy = 0
+    cwip_py = 0
+
+    # Non-current Investments (Note 12)
+    eq_row = safeval(bs_df, A, "Equity Shares")
+    mf_row = safeval(bs_df, A, "Mutual Funds")
+
+    eq_cy = num(eq_row.get('CY (₹)', 0))
+    eq_py = num(eq_row.get('PY (₹)', 0))
+    mf_cy = num(mf_row.get('CY (₹)', 0))
+    mf_py = num(mf_row.get('PY (₹)', 0))
+
+    investments_cy = eq_cy + mf_cy
+    investments_py = eq_py + mf_py
+
+    # Deferred Tax Assets (Note 13)
+    dta_cy = 0
+    dta_py = 0
+
+    # Long-term Loans and Advances (Note 14)
+    longterm_loans_cy = 0
+    longterm_loans_py = 0
+
+    # Other Non-current Assets (Note 15)
+    prelim_exp_row = safeval(bs_df, A, "Preliminary Expenses")
+    prelim_exp_cy = num(prelim_exp_row.get('CY (₹)', 0))
+    prelim_exp_py = num(prelim_exp_row.get('PY (₹)', 0))
+
+    # Current Investments (Note 16)
+    current_inv_cy = 0
+    current_inv_py = 0
+
+    # Inventories (Note 17)
+    stock_row = safeval(bs_df, A, "Stock")
+    stock_cy = num(stock_row.get('CY (₹)', 0))
+    stock_py = num(stock_row.get('PY (₹)', 0))
+
+    # Trade Receivables (Note 18)
+    deb_row = safeval(bs_df, A, "Sundry Debtors")
+    deb_cy = num(deb_row.get('CY (₹)', 0))
+    deb_py = num(deb_row.get('PY (₹)', 0))
+
+    provd_row = safeval(bs_df, A, "Provision for Doubtful Debts")
+    provd_cy = num(provd_row.get('CY (₹)', 0))
+    provd_py = num(provd_row.get('PY (₹)', 0))
+
+    bills_recv_row = safeval(bs_df, A, "Bills Receivable")
+    bills_recv_cy = num(bills_recv_row.get('CY (₹)', 0))
+    bills_recv_py = num(bills_recv_row.get('PY (₹)', 0))
+
+    total_receivables_cy = deb_cy + bills_recv_cy
+    total_receivables_py = deb_py + bills_recv_py
+    net_receivables_cy = total_receivables_cy + provd_cy
+    net_receivables_py = total_receivables_py + provd_py
+
+    # Cash & Bank (Note 19)
+    cash_row = safeval(bs_df, A, "Cash in Hand")
+    bank_row = safeval(bs_df, A, "Bank Balance")
+
+    cash_cy = num(cash_row.get('CY (₹)', 0))
+    cash_py = num(cash_row.get('PY (₹)', 0))
+    bank_cy = num(bank_row.get('CY (₹)', 0))
+    bank_py = num(bank_row.get('PY (₹)', 0))
+
+    cash_total_cy = cash_cy + bank_cy
+    cash_total_py = cash_py + bank_py
+
+    # Short-term Loans/Advances (Note 20)
+    loan_adv_row = safeval(bs_df, A, "Loans & Advances")
+    loan_adv_cy = num(loan_adv_row.get('CY (₹)', 0))
+    loan_adv_py = num(loan_adv_row.get('PY (₹)', 0))
+
+    # Other Current Assets (Note 21)
+    prepaid_row = safeval(bs_df, A, "Prepaid Expenses")
+    prepaid_cy = num(prepaid_row.get('CY (₹)', 0))
+    prepaid_py = num(prepaid_row.get('PY (₹)', 0))
+
+    # Calculate totals for verification
+    total_equity_liab_cy = (
+        share_cap_cy + reserves_total_cy + longterm_borrow_cy + other_longterm_liab_cy +
+        longterm_prov_cy + shortterm_borrow_cy + creditors_cy + other_cur_liab_cy + tax_cy)
+    total_equity_liab_py = (
+        share_cap_py + reserves_total_py + longterm_borrow_py + other_longterm_liab_py +
+        longterm_prov_py + shortterm_borrow_py + creditors_py + other_cur_liab_py + tax_py)
+
+    total_assets_cy = (
+        net_ppe_cy + cwip_cy + investments_cy + dta_cy + longterm_loans_cy + prelim_exp_cy +
+        current_inv_cy + stock_cy + net_receivables_cy + cash_total_cy + loan_adv_cy + prepaid_cy)
+    total_assets_py = (
+        net_ppe_py + cwip_py + investments_py + dta_py + longterm_loans_py + prelim_exp_py +
+        current_inv_py + stock_py + net_receivables_py + cash_total_py + loan_adv_py + prepaid_py)
+
+    # ===============================
+    # Mapping PROFIT & LOSS figures
+    # ===============================
+
+    sales_row = safeval(pl_df, 'Cr.Particulars', "Sales")
+    sales_cy = num(sales_row.get('CY (₹)', 0))
+    sales_py = num(sales_row.get('PY (₹)', 0))
+
+    sales_ret_row = safeval(pl_df, 'Cr.Particulars', "Sales Returns")
+    sales_ret_cy = num(sales_ret_row.get('CY (₹)', 0))
+    sales_ret_py = num(sales_ret_row.get('PY (₹)', 0))
+
+    net_sales_cy = sales_cy + sales_ret_cy
+    net_sales_py = sales_py + sales_ret_py
+
+    # Other Income (Note 23)
+    oi_row = safeval(pl_df, 'Cr.Particulars', "Other Operating Income")
+    oi_cy = num(oi_row.get('CY (₹)', 0))
+    oi_py = num(oi_row.get('PY (₹)', 0))
+
+    int_row = safeval(pl_df, 'Cr.Particulars', "Interest Income")
+    int_cy = num(int_row.get('CY (₹)', 0))
+    int_py = num(int_row.get('PY (₹)', 0))
+
+    other_inc_cy = oi_cy + int_cy
+    other_inc_py = oi_py + int_py
+
+    # Cost of Materials Consumed (Note 24)
+    purch_row = safeval(pl_df, 'Dr.Paticulars', "Purchases")
+    purch_cy = num(purch_row.get('CY (₹)', 0))
+    purch_py = num(purch_row.get('PY (₹)', 0))
+
+    purch_ret_row = safeval(pl_df, 'Dr.Paticulars', "Purchase Returns")
+    purch_ret_cy = num(purch_ret_row.get('CY (₹)', 0))
+    purch_ret_py = num(purch_ret_row.get('PY (₹)', 0))
+
+    wages_row = safeval(pl_df, 'Dr.Paticulars', "Wages")
+    wages_cy = num(wages_row.get('CY (₹)', 0))
+    wages_py = num(wages_row.get('PY (₹)', 0))
+
+    power_row = safeval(pl_df, 'Dr.Paticulars', "Power & Fuel")
+    power_cy = num(power_row.get('CY (₹)', 0))
+    power_py = num(power_row.get('PY (₹)', 0))
+
+    freight_row = safeval(pl_df, 'Dr.Paticulars', "Freight")
+    freight_cy = num(freight_row.get('CY (₹)', 0))
+    freight_py = num(freight_row.get('PY (₹)', 0))
+
+    cost_mat_cy = purch_cy + purch_ret_cy + wages_cy + power_cy + freight_cy
+    cost_mat_py = purch_py + purch_ret_py + wages_py + power_py + freight_py
+
+    # Changes in Inventories (Note 25)
+    os_row = safeval(pl_df, 'Dr.Paticulars', "Opening Stock")
+    os_cy = num(os_row.get('CY (₹)', 0))
+    os_py = num(os_row.get('PY (₹)', 0))
+
+    cs_row = safeval(pl_df, 'Cr.Particulars', "Closing Stock")
+    cs_cy = num(cs_row.get('CY (₹)', 0))
+    cs_py = num(cs_row.get('PY (₹)', 0))
+
+    change_inv_cy = cs_cy - os_cy
+    change_inv_py = cs_py - os_py
+
+    # Employee Benefits Expense (Note 26)
+    sal_row = safeval(pl_df, 'Dr.Paticulars', "Salaries & Wages")
+    sal_cy = num(sal_row.get('CY (₹)', 0))
+    sal_py = num(sal_row.get('PY (₹)', 0))
+
+    # Finance Costs
+    loan_int_row = safeval(pl_df, 'Dr.Paticulars', "Interest on Loans")
+    loan_int_cy = num(loan_int_row.get('CY (₹)', 0))
+    loan_int_py = num(loan_int_row.get('PY (₹)', 0))
+
+    # Depreciation
+    dep_row = safeval(pl_df, 'Dr.Paticulars', "Depreciation")
+    dep_cy = num(dep_row.get('CY (₹)', 0))
+    dep_py = num(dep_row.get('PY (₹)', 0))
+
+    # Other expenses components
+    rent_cy = num(safeval(pl_df, 'Dr.Paticulars', "Rent, Rates & Taxes").get('CY (₹)', 0))
+    rent_py = num(safeval(pl_df, 'Dr.Paticulars', "Rent, Rates & Taxes").get('PY (₹)', 0))
+    admin_cy = num(safeval(pl_df, 'Dr.Paticulars', "Administrative Expenses").get('CY (₹)', 0))
+    admin_py = num(safeval(pl_df, 'Dr.Paticulars', "Administrative Expenses").get('PY (₹)', 0))
+    selling_cy = num(safeval(pl_df, 'Dr.Paticulars', "Selling & Distribution Expenses").get('CY (₹)', 0))
+    selling_py = num(safeval(pl_df, 'Dr.Paticulars', "Selling & Distribution Expenses").get('PY (₹)', 0))
+    repairs_cy = num(safeval(pl_df, 'Dr.Paticulars', "Repairs & Maintenance").get('CY (₹)', 0))
+    repairs_py = num(safeval(pl_df, 'Dr.Paticulars', "Repairs & Maintenance").get('PY (₹)', 0))
+    insurance_cy = num(safeval(pl_df, 'Dr.Paticulars', "Insurance").get('CY (₹)', 0))
+    insurance_py = num(safeval(pl_df, 'Dr.Paticulars', "Insurance").get('PY (₹)', 0))
+    audit_cy = num(safeval(pl_df, 'Dr.Paticulars', "Audit Fees").get('CY (₹)', 0))
+    audit_py = num(safeval(pl_df, 'Dr.Paticulars', "Audit Fees").get('PY (₹)', 0))
+    bad_cy = num(safeval(pl_df, 'Dr.Paticulars', "Bad Debts Written Off").get('CY (₹)', 0))
+    bad_py = num(safeval(pl_df, 'Dr.Paticulars', "Bad Debts Written Off").get('PY (₹)', 0))
+
+    other_exp_cy = rent_cy + admin_cy + selling_cy + repairs_cy + insurance_cy + audit_cy + bad_cy
+    other_exp_py = rent_py + admin_py + selling_py + repairs_py + insurance_py + audit_py + bad_py
+
+    # Totals and profits
+    total_rev_cy = net_sales_cy + other_inc_cy
+    total_rev_py = net_sales_py + other_inc_py
+
+    total_exp_cy = cost_mat_cy + change_inv_cy + sal_cy + loan_int_cy + dep_cy + other_exp_cy
+    total_exp_py = cost_mat_py + change_inv_py + sal_py + loan_int_py + dep_py + other_exp_py
+
+    pbt_cy = total_rev_cy - total_exp_cy
+    pbt_py = total_rev_py - total_exp_py
+
+    pat_cy = pbt_cy - tax_cy
+    pat_py = pbt_py - tax_py
+
+    num_shares = share_cap_cy / 10 if share_cap_cy > 0 else 10000  # Assume ₹10 per share
+    eps_cy = pat_cy / num_shares if num_shares > 0 else 0
+    eps_py = pat_py / num_shares if num_shares > 0 else 0
+
+    # ===============================
+    # Construct Balance Sheet output dataframe
+    # ===============================
     bs_out = pd.DataFrame([
         ['Particulars', 'Note No.', 'CY (₹)', 'PY (₹)'],
         ['EQUITY AND LIABILITIES', '', '', ''],
         ['1. Shareholders Funds', '', '', ''],
-        ['(a) Share Capital', 1, 100000, 100000],
-        ['(b) Reserves and Surplus', 2, 150000, 130000],
-        ['TOTAL', '', 250000, 230000],
+        ['(a) Share Capital', 1, share_cap_cy, share_cap_py],
+        ['(b) Reserves and Surplus', 2, reserves_total_cy, reserves_total_py],
+        ['2. Non-Current Liabilities', '', '', ''],
+        ['(a) Long-Term Borrowings', 3, longterm_borrow_cy, longterm_borrow_py],
+        ['(b) Deferred Tax Liabilities (Net)', 4, 0, 0],
+        ['(c) Other Long-Term Liabilities', 5, other_longterm_liab_cy, other_longterm_liab_py],
+        ['(d) Long-Term Provisions', 6, longterm_prov_cy, longterm_prov_py],
+        ['3. Current Liabilities', '', '', ''],
+        ['(a) Short-Term Borrowings', 7, shortterm_borrow_cy, shortterm_borrow_py],
+        ['(b) Trade Payables', 8, creditors_cy, creditors_py],
+        ['(c) Other Current Liabilities', 9, other_cur_liab_cy, other_cur_liab_py],
+        ['(d) Short-Term Provisions', 10, tax_cy, tax_py],
+        ['TOTAL', '', total_equity_liab_cy, total_equity_liab_py],
         ['ASSETS', '', '', ''],
         ['1. Non-Current Assets', '', '', ''],
         ['(a) Fixed Assets', '', '', ''],
-        ['     (i) Tangible Assets', 11, 200000, 180000],
+        ['     (i) Tangible Assets', 11, net_ppe_cy, net_ppe_py],
+        ['     (ii) Intangible Assets', 12, 0, 0],
+        ['     (iii) Capital Work-in-Progress', 13, cwip_cy, cwip_py],
+        ['(b) Non-Current Investments', 14, investments_cy, investments_py],
+        ['(c) Deferred Tax Assets (Net)', 15, dta_cy, dta_py],
+        ['(d) Long-Term Loans and Advances', 16, longterm_loans_cy, longterm_loans_py],
+        ['(e) Other Non-Current Assets', 17, prelim_exp_cy, prelim_exp_py],
         ['2. Current Assets', '', '', ''],
-        ['(b) Inventories', 19, 50000, 50000],
-        ['TOTAL', '', 250000, 230000]
+        ['(a) Current Investments', 18, current_inv_cy, current_inv_py],
+        ['(b) Inventories', 19, stock_cy, stock_py],
+        ['(c) Trade Receivables', 20, net_receivables_cy, net_receivables_py],
+        ['(d) Cash and Cash Equivalents', 21, cash_total_cy, cash_total_py],
+        ['(e) Short-Term Loans and Advances', 22, loan_adv_cy, loan_adv_py],
+        ['(f) Other Current Assets', 23, prepaid_cy, prepaid_py],
+        ['TOTAL', '', total_assets_cy, total_assets_py]
     ])
-    
-    # Default P&L
+
+    # ===============================
+    # Construct Profit & Loss output dataframe
+    # ===============================
     pl_out = pd.DataFrame([
         ['Particulars', 'Note No.', 'CY (₹)', 'PY (₹)'],
-        ['I. Revenue from Operations', 24, 500000, 450000],
-        ['II. Other Income', 25, 10000, 8000],
-        ['III. Total Revenue (I + II)', '', 510000, 458000],
-        ['VII. Profit for the Period', '', 25000, 20000]
+        ['I. Revenue from Operations', 24, net_sales_cy, net_sales_py],
+        ['II. Other Income', 25, other_inc_cy, other_inc_py],
+        ['III. Total Revenue (I + II)', '', total_rev_cy, total_rev_py],
+        ['IV. Expenses', '', '', ''],
+        ['(a) Cost of Materials Consumed', 26, cost_mat_cy, cost_mat_py],
+        ['(b) Changes in Inventories of Finished Goods', '', change_inv_cy, change_inv_py],
+        ['(c) Employee Benefits Expense', '', sal_cy, sal_py],
+        ['(d) Finance Costs', '', loan_int_cy, loan_int_py],
+        ['(e) Depreciation and Amortization Expense', '', dep_cy, dep_py],
+        ['(f) Other Expenses', '', other_exp_cy, other_exp_py],
+        ['Total Expenses', '', total_exp_cy, total_exp_py],
+        ['V. Profit Before Tax (III - IV)', '', pbt_cy, pbt_py],
+        ['VI. Tax Expense', '', '', ''],
+        ['(a) Current Tax', '', tax_cy, tax_py],
+        ['VII. Profit for the Period (V - VI)', '', pat_cy, pat_py],
+        ['VIII. Earnings per Equity Share (Basic & Diluted)', '', eps_cy, eps_py]
     ])
-    
-    notes = create_simplified_notes()
-    
+
+    # ===============================
+    # Create all 26 Notes DataFrames (copied exactly from your provided code)
+    # ===============================
+    note1 = pd.DataFrame({
+        'Particulars': [
+            'Authorised Share Capital',
+            '10,000 Equity shares of Rs.10 each',
+            '',
+            'Issued, Subscribed & Paid-up Capital',
+            '10,000 Equity shares of Rs.10 each fully paid up',
+            '',
+            'Total'
+        ],
+        'CY (₹)': [authorised_cap, '', '', share_cap_cy, '', '', share_cap_cy],
+        'PY (₹)': [authorised_cap, '', '', share_cap_py, '', '', share_cap_py]
+    })
+
+    note2 = pd.DataFrame({
+        'Particulars': [
+            'General Reserve',
+            'Balance at the beginning of the year',
+            'Add: Transferred from Statement of P&L',
+            'Balance at the end of the year',
+            '',
+            'Surplus in Statement of P&L:',
+            'Balance at the beginning of the year',
+            'Add: Profit for the Year',
+            'Less: Proposed dividend',
+            'Balance at the end of the year',
+            '',
+            'Total'
+        ],
+        'CY (₹)': [
+            '', general_res_py, 0, general_res_cy, '',
+            '', surplus_open_cy, profit_cy, pd_cy, surplus_close_cy,
+            '', reserves_total_cy
+        ],
+        'PY (₹)': [
+            '', general_res_py, 0, general_res_py, '',
+            '', surplus_open_py, profit_py, pd_py, surplus_close_py,
+            '', reserves_total_py
+        ]
+    })
+
+    note3 = pd.DataFrame({
+        'Particulars': [
+            'Term loans',
+            'From banks:',
+            'Term Loan (Secured)',
+            'Vehicle Loan (Secured)',
+            '',
+            'Total'
+        ],
+        'CY (₹)': ['', '', tl_cy, vl_cy, '', longterm_borrow_cy],
+        'PY (₹)': ['', '', tl_py, vl_py, '', longterm_borrow_py]
+    })
+
+    note4 = pd.DataFrame({
+        'Particulars': ['Deferred Tax Liabilities (Net)'],
+        'CY (₹)': [0],
+        'PY (₹)': [0]
+    })
+
+    note5 = pd.DataFrame({
+        'Particulars': [
+            'Loans from Directors (Unsecured)',
+            'Inter-Corporate Borrowings (Unsecured)',
+            'Total'
+        ],
+        'CY (₹)': [fd_cy, icb_cy, other_longterm_liab_cy],
+        'PY (₹)': [fd_py, icb_py, other_longterm_liab_py]
+    })
+
+    note6 = pd.DataFrame({
+        'Particulars': ['Long-term Provisions (Employee Benefits)'],
+        'CY (₹)': [longterm_prov_cy],
+        'PY (₹)': [longterm_prov_py]
+    })
+
+    note7 = pd.DataFrame({
+        'Particulars': ['Short-term Borrowings from Banks'],
+        'CY (₹)': [shortterm_borrow_cy],
+        'PY (₹)': [shortterm_borrow_py]
+    })
+
+    note8 = pd.DataFrame({
+        'Particulars': [
+            'Trade Payables:',
+            'Total outstanding dues of micro and small enterprises',
+            'Total outstanding dues of creditors other than micro and small enterprises',
+            '',
+            'Total'
+        ],
+        'CY (₹)': ['', min(creditors_cy, 120000), max(0, creditors_cy-120000), '', creditors_cy],
+        'PY (₹)': ['', min(creditors_py, 100000), max(0, creditors_py-100000), '', creditors_py]
+    })
+
+    note9 = pd.DataFrame({
+        'Particulars': [
+            'Bills Payable',
+            'Outstanding Expenses',
+            'Proposed Dividend',
+            'Other Payables',
+            '',
+            'Total'
+        ],
+        'CY (₹)': [bp_cy, oe_cy, pd_cy, 0, '', other_cur_liab_cy],
+        'PY (₹)': [bp_py, oe_py, pd_py, 0, '', other_cur_liab_py]
+    })
+
+    note10 = pd.DataFrame({
+        'Particulars': [
+            'Provision for employee benefits:',
+            'Provision for bonus',
+            '',
+            'Provision - Others:',
+            'Provision for tax (net)',
+            '',
+            'Total'
+        ],
+        'CY (₹)': ['', 0, '', '', tax_cy, '', tax_cy],
+        'PY (₹)': ['', 0, '', '', tax_py, '', tax_py]
+    })
+
+    note11 = pd.DataFrame({
+        'Asset Class': [
+            'Land & Building',
+            'Plant & Machinery',
+            'Furniture & Fixtures',
+            'Computers',
+            '',
+            'Total'
+        ],
+        'Gross Block (₹)': [land_cy, plant_cy, furn_cy, comp_cy, '', gross_block_cy],
+        'Accumulated Depreciation (₹)': ['-', plant_cy-plant_cy, furn_cy-(furn_cy-20000), comp_cy-(comp_cy-20000), '', acc_dep_cy],
+        'Net Block (₹)': [land_cy, plant_py, 20000, 20000, '', net_ppe_cy]
+    })
+
+    note12 = pd.DataFrame({
+        'Particulars': ['Software', 'Patents', 'Total'],
+        'CY (₹)': [0, 0, 0],
+        'PY (₹)': [0, 0, 0]
+    })
+
+    note13 = pd.DataFrame({
+        'Particulars': ['Capital Work-in-Progress'],
+        'CY (₹)': [cwip_cy],
+        'PY (₹)': [cwip_py]
+    })
+
+    note14 = pd.DataFrame({
+        'Particulars': [
+            'Investment in equity instruments:',
+            'Equity Shares (Unquoted)',
+            'Mutual Funds (Unquoted)',
+            '',
+            'Total'
+        ],
+        'CY (₹)': ['', eq_cy, mf_cy, '', investments_cy],
+        'PY (₹)': ['', eq_py, mf_py, '', investments_py]
+    })
+
+    note15 = pd.DataFrame({
+        'Particulars': ['Deferred Tax Assets (Net)'],
+        'CY (₹)': [dta_cy],
+        'PY (₹)': [dta_py]
+    })
+
+    note16 = pd.DataFrame({
+        'Particulars': [
+            'Capital advances:',
+            'Secured, considered good',
+            'Unsecured, considered good',
+            '',
+            'Security deposits',
+            '',
+            'Total'
+        ],
+        'CY (₹)': ['', 0, 0, '', 0, '', longterm_loans_cy],
+        'PY (₹)': ['', 0, 0, '', 0, '', longterm_loans_py]
+    })
+
+    note17 = pd.DataFrame({
+        'Particulars': [
+            'Unamortised expenses:',
+            'Preliminary Expenses',
+            '',
+            'Total'
+        ],
+        'CY (₹)': ['', prelim_exp_cy, '', prelim_exp_cy],
+        'PY (₹)': ['', prelim_exp_py, '', prelim_exp_py]
+    })
+
+    note18 = pd.DataFrame({
+        'Particulars': [
+            'Investment in mutual funds',
+            'Investment in government securities',
+            '',
+            'Total'
+        ],
+        'CY (₹)': [0, 0, '', current_inv_cy],
+        'PY (₹)': [0, 0, '', current_inv_py]
+    })
+
+    note19 = pd.DataFrame({
+        'Particulars': [
+            'Raw materials',
+            'Work-in-progress',
+            'Finished goods',
+            'Stock-in-trade',
+            '',
+            'Total'
+        ],
+        'CY (₹)': [0, 0, stock_cy, 0, '', stock_cy],
+        'PY (₹)': [0, 0, stock_py, 0, '', stock_py]
+    })
+
+    note20 = pd.DataFrame({
+        'Particulars': [
+            'Trade receivables outstanding for more than 6 months:',
+            'Unsecured, considered good',
+            '',
+            'Other trade receivables:',
+            'Unsecured, considered good',
+            'Bills Receivable',
+            '',
+            'Total Gross Receivables',
+            'Less: Provision for doubtful trade receivables',
+            '',
+            'Net Trade Receivables'
+        ],
+        'CY (₹)': [
+            '', min(deb_cy, 50000), '',
+            '', max(0, deb_cy-50000), bills_recv_cy, '',
+            total_receivables_cy, provd_cy, '',
+            net_receivables_cy
+        ],
+        'PY (₹)': [
+            '', min(deb_py, 40000), '',
+            '', max(0, deb_py-40000), bills_recv_py, '',
+            total_receivables_py, provd_py, '',
+            net_receivables_py
+        ]
+    })
+
+    note21 = pd.DataFrame({
+        'Particulars': [
+            'Cash on hand',
+            'Balances with banks:',
+            'In current accounts',
+            'In deposit accounts',
+            '',
+            'Total'
+        ],
+        'CY (₹)': [cash_cy, '', bank_cy, 0, '', cash_total_cy],
+        'PY (₹)': [cash_py, '', bank_py, 0, '', cash_total_py]
+    })
+
+    note22 = pd.DataFrame({
+        'Particulars': [
+            'Loans and advances to employees:',
+            'Unsecured, considered good',
+            '',
+            'Advances to suppliers:',
+            'Unsecured, considered good',
+            '',
+            'Total'
+        ],
+        'CY (₹)': ['', loan_adv_cy//2, '', '', loan_adv_cy//2, '', loan_adv_cy],
+        'PY (₹)': ['', loan_adv_py//2, '', '', loan_adv_py//2, '', loan_adv_py]
+    })
+
+    note23 = pd.DataFrame({
+        'Particulars': [
+            'Prepaid expenses:',
+            'Insurance premium',
+            'Advance tax',
+            'Other prepaid expenses',
+            '',
+            'Total'
+        ],
+        'CY (₹)': ['', prepaid_cy//2, 0, prepaid_cy//2, '', prepaid_cy],
+        'PY (₹)': ['', prepaid_py//2, 0, prepaid_py//2, '', prepaid_py]
+    })
+
+    note24 = pd.DataFrame({
+        'Particulars': [
+            'Sale of products:',
+            'Gross Sales',
+            'Less: Sales Returns',
+            '',
+            'Net Revenue from Operations'
+        ],
+        'CY (₹)': ['', sales_cy, sales_ret_cy, '', net_sales_cy],
+        'PY (₹)': ['', sales_py, sales_ret_py, '', net_sales_py]
+    })
+
+    note25 = pd.DataFrame({
+        'Particulars': [
+            'Interest income:',
+            'On investments',
+            '',
+            'Other operating income:',
+            'Discount received',
+            '',
+            'Total Other Income'
+        ],
+        'CY (₹)': ['', int_cy, '', '', oi_cy, '', other_inc_cy],
+        'PY (₹)': ['', int_py, '', '', oi_py, '', other_inc_py]
+    })
+
+    note26 = pd.DataFrame({
+        'Particulars': [
+            'Purchases of raw materials/goods',
+            'Less: Purchase returns',
+            'Net Purchases',
+            '',
+            'Direct expenses:',
+            'Wages',
+            'Power & Fuel',
+            'Freight/Carriage Inward',
+            '',
+            'Total Cost of Materials Consumed'
+        ],
+        'CY (₹)': [
+            purch_cy, purch_ret_cy, purch_cy + purch_ret_cy, '',
+            '', wages_cy, power_cy, freight_cy, '',
+            cost_mat_cy
+        ],
+        'PY (₹)': [
+            purch_py, purch_ret_py, purch_py + purch_ret_py, '',
+            '', wages_py, power_py, freight_py, '',
+            cost_mat_py
+        ]
+    })
+
+    notes = [
+        ("Note 1: Share Capital", note1),
+        ("Note 2: Reserves and Surplus", note2),
+        ("Note 3: Long-Term Borrowings", note3),
+        ("Note 4: Deferred Tax Liabilities", note4),
+        ("Note 5: Other Long-Term Liabilities", note5),
+        ("Note 6: Long-Term Provisions", note6),
+        ("Note 7: Short-Term Borrowings", note7),
+        ("Note 8: Trade Payables", note8),
+        ("Note 9: Other Current Liabilities", note9),
+        ("Note 10: Short-Term Provisions", note10),
+        ("Note 11: Fixed Assets - Tangible", note11),
+        ("Note 12: Intangible Assets", note12),
+        ("Note 13: Capital Work-in-Progress", note13),
+        ("Note 14: Non-Current Investments", note14),
+        ("Note 15: Deferred Tax Assets", note15),
+        ("Note 16: Long-Term Loans and Advances", note16),
+        ("Note 17: Other Non-Current Assets", note17),
+        ("Note 18: Current Investments", note18),
+        ("Note 19: Inventories", note19),
+        ("Note 20: Trade Receivables", note20),
+        ("Note 21: Cash and Cash Equivalents", note21),
+        ("Note 22: Short-Term Loans and Advances", note22),
+        ("Note 23: Other Current Assets", note23),
+        ("Note 24: Revenue from Operations", note24),
+        ("Note 25: Other Income", note25),
+        ("Note 26: Cost of Materials Consumed", note26),
+    ]
+
     totals = {
-        "total_assets_cy": 250000,
-        "total_equity_liab_cy": 250000,
-        "total_rev_cy": 510000,
-        "pat_cy": 25000,
-        "eps_cy": 2.50,
-        "eps_py": 2.00
+        "total_assets_cy": total_assets_cy,
+        "total_equity_liab_cy": total_equity_liab_cy,
+        "total_rev_cy": total_rev_cy,
+        "pat_cy": pat_cy,
+        "eps_cy": eps_cy,
+        "eps_py": eps_py
     }
-    
+
     return bs_out, pl_out, notes, totals
 
 # ---------------------- Streamlit UI code below -------------------------
