@@ -152,7 +152,7 @@ def process_with_gemini(bs_df, pl_df):
         totals = {
             "total_assets_cy": num(bs_out.iloc[-1,2]) if not bs_out.empty else 0,
             "total_equity_liab_cy": num(bs_out.iloc[-1,2]) if not bs_out.empty else 0,
-            "total_rev_cy": num(pl_out.iloc) if len(pl_out) > 2 else 0,[2]
+            "total_rev_cy": num(pl_out.iloc) if len(pl_out) > 2 else 0,
             "pat_cy": num(pl_out.iloc[-2,2]) if len(pl_out) > 2 else 0,
             "eps_cy": 0, "eps_py": 0,
         }
@@ -988,4 +988,5 @@ if uploaded_file:
                 fig, ax = plt.subplots(figsize=(3,3))
                 ax.pie(pie_vals, labels=pie_labels, autopct='%1.0f%%', startangle=90)
                 ax.axis('equal')
+
 
