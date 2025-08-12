@@ -119,7 +119,7 @@ def call_gemini_api(prompt: str) -> dict:
         response = model.generate_content(prompt)
         text_response = response.text.strip()
         # Remove possible code block
-        if text_response.startswith("```
+        if text_response.startswith("```"):
             text_response = text_response.split("```").striprip()
         return json.loads(text_response)
     except Exception as e:
@@ -1045,3 +1045,4 @@ else:
     for tab in tabs[1:]:
         with tab:
             st.info("⏳ Please upload an Excel file to enable dashboards and reporting.")
+
