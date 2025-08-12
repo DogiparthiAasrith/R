@@ -1,6 +1,3 @@
-# === Complete Streamlit App Code with Gemini API Integration ===
-# Provides Schedule III mapping, AI-powered interpretation, ratio/trend analysis, dashboards, and MCA-ready export.
-
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -9,12 +6,17 @@ from datetime import datetime
 import matplotlib.pyplot as plt
 import os
 import json
-import google.generativeai as genai         # <--- Gemini API
+import openpyxl
+import google.generativeai as genai  # Gemini API
 
-# === Gemini API Integration ===
-API_KEY = os.getenv("AIzaSyBL2j_L0Hd543jKJfrKvNOVkGizBrHAdV0") or "AIzaSyBL2j_L0Hd543jKJfrKvNOVkGizBrHAdV0"
+# === CONFIGURE GEMINI API (ALWAYS ENABLED) ===
+API_KEY = os.getenv("GEMINI_API_KEY")
+if not API_KEY:
+    st.error("❌ Gemini API key not set in the environment variable GEMINI_API_KEY. Please set it and restart.")
+    st.stop()
 genai.configure(api_key=API_KEY)
 
+# --- Utility & File Reading Functions ---
 def num(x):
     if x is None or pd.isnull(x) or pd.isna(x): return 0.0
     if isinstance(x, (int, float)):
@@ -80,47 +82,47 @@ def write_notes_with_labels(writer, sheetname, notes_with_labels):
 
 def read_bs_and_pl(iofile):
     xl = pd.ExcelFile(iofile)
-    # --- Balance Sheet ---
     bs_sheet = None
     for sheet in xl.sheet_names:
         if any(word in sheet.lower() for word in ['balance']): bs_sheet = sheet; break
     if bs_sheet is None: bs_sheet = xl.sheet_names[0]
     bs_raw = pd.read_excel(xl, bs_sheet, header=None).fillna('')
-    bs_head_row = find_header_row(bs_raw, 'Balance Sheet', [['LIABILITIES','ASSETS'],['Particulars']])
+    bs_head_row = find_header_row(bs_raw, 'Balance Sheet', [['LIABILITIES', 'ASSETS'], ['Particulars']])
     bs = pd.read_excel(xl, bs_sheet, header=bs_head_row).fillna(0)
     bs = bs.loc[:, ~bs.columns.astype(str).str.startswith("Unnamed")]
-    # --- Profit & Loss ---
     pl_sheet = None
     for sheet in xl.sheet_names:
         if any(word in sheet.lower() for word in ['profit', 'loss', 'income', 'p&l']): pl_sheet = sheet; break
     if pl_sheet is None: raise Exception("Could not find Profit & Loss sheet.")
     pl_raw = pd.read_excel(xl, pl_sheet, header=None).fillna('')
-    pl_head_row = find_header_row(pl_raw, 'Profit & Loss', [['DR.PARTICULARS','CR.PARTICULARS'],['Particulars']])
+    pl_head_row = find_header_row(pl_raw, 'Profit & Loss', [['DR.PARTICULARS', 'CR.PARTICULARS'], ['Particulars']])
     pl = pd.read_excel(xl, pl_sheet, header=pl_head_row).fillna(0)
     pl = pl.loc[:, ~pl.columns.astype(str).str.startswith("Unnamed")]
     return bs, pl
 
-# --- Gemini API helper ---
+# --- Gemini Prompt and Call ---
 def dataframes_to_prompt(bs_df: pd.DataFrame, pl_df: pd.DataFrame) -> str:
     bs_text = bs_df.fillna('').to_csv(index=False)
     pl_text = pl_df.fillna('').to_csv(index=False)
-    return (
-        "You are a financial AI agent specializing in Indian accounting standards. "
-        "Interpret the following CSV tables (Balance Sheet, Profit & Loss) and convert them into Schedule III format as per Companies Act 2013. "
-        "Return valid JSON ONLY with keys: 'balance_sheet', 'profit_loss', 'notes_to_accounts'.\n"
-        "Balance Sheet CSV:\n" + bs_text + "\n"
-        "Profit & Loss CSV:\n" + pl_text + "\n"
-        "Return structured output as requested."
+    prompt = (
+        "You are a financial AI agent specialized in Indian accounting standards for companies. "
+        "Interpret these CSV tables (Balance Sheet and Profit & Loss, with any columns/format), "
+        "and convert/map them to Schedule III format as per Companies Act 2013, "
+        "including Balance Sheet, Profit & Loss, and Notes to Accounts (1-26, as applicable, labeled). "
+        "Return only valid JSON in this exact structure: "
+        "{'balance_sheet': <array_of_arrays>, 'profit_loss': <array_of_arrays>, 'notes_to_accounts': <array of {'label':str, 'table':array_of_arrays}>}. "
+        "\nBalance Sheet CSV:\n" + bs_text + "\nProfit & Loss CSV:\n" + pl_text
     )
+    return prompt
 
 def call_gemini_api(prompt: str) -> dict:
     try:
         model = genai.GenerativeModel("gemini-1.5-flash")
         response = model.generate_content(prompt)
         text_response = response.text.strip()
-        # Remove possible code block
-        if text_response.startswith("```"):
-            text_response = text_response.split("```").striprip()
+        # Remove markdown formatting if present
+        if text_response.startswith("```
+            text_response = text_response.split("```").strip() if "```
         return json.loads(text_response)
     except Exception as e:
         return {"error": str(e)}
@@ -131,17 +133,26 @@ def process_with_gemini(bs_df, pl_df):
     if "error" in gemini_data:
         return None, None, None, gemini_data
     try:
-        bs_out = pd.DataFrame(gemini_data.get("balance_sheet", []))
-        pl_out = pd.DataFrame(gemini_data.get("profit_loss", []))
+        # Accept both dict (Gemini 1.5) and legacy structure
+        bs_out = pd.DataFrame(gemini_data["balance_sheet"]) if "balance_sheet" in gemini_data else None
+        pl_out = pd.DataFrame(gemini_data["profit_loss"]) if "profit_loss" in gemini_data else None
         notes_list = []
-        for idx, note in enumerate(gemini_data.get("notes_to_accounts", []), start=1):
-            label = f"Note {idx}"
-            note_df = pd.DataFrame(note)
-            notes_list.append((label, note_df))
+        notes = gemini_data.get("notes_to_accounts", [])
+        if isinstance(notes, list) and notes and isinstance(notes, dict):
+            for note in notes:
+                label = note.get("label", "Note")
+                table = note.get("table", [])
+                note_df = pd.DataFrame(table)
+                notes_list.append((label, note_df))
+        elif isinstance(notes, list):  # If simple list of tables
+            for idx, note in enumerate(notes, start=1):
+                note_df = pd.DataFrame(note)
+                label = f"Note {idx}"
+                notes_list.append((label, note_df))
         totals = {
             "total_assets_cy": num(bs_out.iloc[-1,2]) if not bs_out.empty else 0,
             "total_equity_liab_cy": num(bs_out.iloc[-1,2]) if not bs_out.empty else 0,
-            "total_rev_cy": num(pl_out.iloc[2,2]) if len(pl_out) > 2 else 0,
+            "total_rev_cy": num(pl_out.iloc) if len(pl_out) > 2 else 0,[2]
             "pat_cy": num(pl_out.iloc[-2,2]) if len(pl_out) > 2 else 0,
             "eps_cy": 0, "eps_py": 0,
         }
@@ -903,51 +914,46 @@ def process_financials(bs_df, pl_df):
     }
 
     return bs_out, pl_out, notes, totals
-# === Streamlit UI ===
+
+# --- Streamlit UI ---
 st.set_page_config(page_title="AI Financial Mapping Tool", layout="wide")
-st.title("AI Financial Mapping Tool (Gemini API Integrated)")
-st.markdown("> Schedule III Company Act 2013 Proforma Generation + Deep Financial Health Analysis + MCA-ready Export")
+st.title("AI Financial Mapping Tool (Gemini API Powered)")
+st.markdown("> 🧠 Gemini API will perform intelligent Schedule III mapping & analysis as primary method. If Gemini is unreachable/invalid, fallback logic will apply. All exports are MCA-ready.")
 
 uploaded_file = st.file_uploader("Upload Excel file (.xls/.xlsx)", type=["xls", "xlsx"])
 tabs = st.tabs(["Upload", "Dashboard", "Analysis", "Reports", "Export"])
 
-with tabs[0]:
+with tabs:
     if uploaded_file:
-        st.success("✅ Uploaded file: " + uploaded_file.name)
-        st.write("Upload Details:")
-        st.write(f"- File Size: {uploaded_file.size:,} bytes")
-        st.info("Processing using Google Gemini API for intelligent mapping. If API fails, fallback logic will apply.")
+        st.success(f"✅ Uploaded file: {uploaded_file.name}")
+        st.info("📊 File size: {:,} bytes".format(uploaded_file.size))
+        st.info("🧠 Processing using Google Gemini API for intelligent Schedule III mapping. If API fails, fallback logic will apply.")
     else:
-        st.info("Please upload a file to continue.")
+        st.info("Please upload an Excel file to continue.")
 
 if uploaded_file:
     try:
         input_file = io.BytesIO(uploaded_file.read())
         bs_df, pl_df = read_bs_and_pl(input_file)
-        # --- Try Gemini AI extraction ---
+        # Try Gemini AI extraction FIRST, then fallback
         bs_out, pl_out, notes, totals = process_with_gemini(bs_df, pl_df)
-        # If Gemini or output fails, fallback to rule-based
         if bs_out is None or pl_out is None or not isinstance(totals, dict):
+            st.warning("⚠️ Gemini API failed or returned invalid. Fallback to strict Schedule III logic.")
             bs_out, pl_out, notes, totals = process_financials(bs_df, pl_df)
-
-        # Ratio calculation from extracted
+        # --- 5 Ratio, Trend Analysis, KPIs etc ---
         cy = num(totals.get('total_rev_cy', 0))
         pat_cy = num(totals.get('pat_cy', 0))
         assets_cy = num(totals.get('total_assets_cy', 0))
-        equity = num(bs_out.iloc[3,2]) + num(bs_out.iloc[4,2]) if len(bs_out) > 4 else assets_cy/2
-        debt = num(bs_out.iloc[6,2]) + num(bs_out.iloc[12,2]) if len(bs_out) > 12 else assets_cy/4
-        current_assets = num(bs_out.iloc[26,2]) if len(bs_out) > 26 else assets_cy/2
-        current_liab = num(bs_out.iloc[14,2]) if len(bs_out) > 14 else assets_cy/4
-
-        # 5 prominent ratios
+        equity = num(bs_out.iloc) + num(bs_out.iloc) if len(bs_out) > 4 else assets_cy/2[2]
+        debt = num(bs_out.iloc[6, num(bs_out.iloc[12, len(bs_out) > 12 else assets_cy/4[2]
+        current_assets = num(bs_out.iloc) if len(bs_out) > 26 else assets_cy/2[2]
+        current_liab = num(bs_out.iloc) if len(bs_out) > 14 else assets_cy/4[2]
         current_ratio = current_assets / current_liab if current_liab > 0 else 0
         profit_margin = pat_cy / cy * 100 if cy > 0 else 0
         roa = pat_cy / assets_cy * 100 if assets_cy > 0 else 0
         dteq = debt / equity if equity > 0 else 0
-        quick_assets = current_assets - num(bs_out.iloc[19,2]) if len(bs_out) > 19 else current_assets * 0.8
+        quick_assets = current_assets - num(bs_out.iloc) if len(bs_out) > 19 else current_assets * 0.8[2]
         quick_ratio = quick_assets / current_liab if current_liab > 0 else 0
-
-        # Trend Analysis
         months = pd.date_range("2023-04-01", periods=12, freq="M").strftime('%b')
         np.random.seed(2)
         base_revenue = max(1000, cy/12)
@@ -956,17 +962,16 @@ if uploaded_file:
         rev_trend_df = pd.DataFrame({"Revenue": revenue_trend}, index=months)
         profit_df = pd.DataFrame({"Profit": profit_trend}, index=months)
 
-        # === Visual Dashboard Tab ===
-        with tabs[1]:
-            st.header("Financial Dashboard: Deep Interpretation")
+        # --- Dashboard (Tab 1) ---
+        with tabs:[1]
+            st.header("Financial Dashboard: Interpretation")
             k1, k2, k3, k4, k5 = st.columns(5)
             k1.metric("Current Ratio", f"{current_ratio:.2f}")
             k2.metric("Profit Margin", f"{profit_margin:.2f}%")
             k3.metric("ROA", f"{roa:.2f}%")
             k4.metric("Debt-to-Equity", f"{dteq:.2f}")
             k5.metric("Quick Ratio", f"{quick_ratio:.2f}")
-
-            chart1, chart2 = st.columns([2,1])
+            chart1, chart2 = st.columns()[2][1]
             with chart1:
                 st.subheader("Revenue Trend (Monthly)")
                 st.line_chart(rev_trend_df)
@@ -974,75 +979,12 @@ if uploaded_file:
                 st.line_chart(profit_df)
             with chart2:
                 st.subheader("Asset Distribution")
-                fa = num(bs_out.iloc[21,2]) if len(bs_out) > 21 else 0.36*assets_cy
-                ca = num(bs_out.iloc[26,2]) if len(bs_out) > 26 else 0.48*assets_cy
-                invest = num(bs_out.iloc[14,2]) if len(bs_out) > 14 else 0.13*assets_cy
+                fa = num(bs_out.iloc[21, len(bs_out) > 21 else 0.36*assets_cy[2]
+                ca = num(bs_out.iloc[26, len(bs_out) > 26 else 0.48*assets_cy[2]
+                invest = num(bs_out.iloc) if len(bs_out) > 14 else 0.13*assets_cy[2]
                 other = assets_cy - (fa + ca + invest)
                 pie_labels = ['Fixed Assets', 'Current Assets', 'Investments', 'Other']
                 pie_vals = [fa, ca, invest, other]
                 fig, ax = plt.subplots(figsize=(3,3))
                 ax.pie(pie_vals, labels=pie_labels, autopct='%1.0f%%', startangle=90)
                 ax.axis('equal')
-                st.pyplot(fig)
-
-        # === Analysis Tab ===
-        with tabs[2]:
-            st.subheader("Summary & Key Metrics")
-            st.success(f"Assets: ₹{safe_int(totals['total_assets_cy']):,}")
-            st.success(f"Liabilities: ₹{safe_int(totals['total_equity_liab_cy']):,}")
-            st.info(f"Revenue: ₹{safe_int(totals['total_rev_cy']):,}")
-            st.info(f"PAT: ₹{safe_int(totals['pat_cy']):,}")
-            st.info(f"EPS: {totals['eps_cy']:.2f} (CY), {totals['eps_py']:.2f} (PY)")
-            st.write("**Extracted Data Preview:**")
-            st.dataframe(bs_out.head(12).fillna(0))
-            st.dataframe(pl_out.head(12).fillna(0))
-
-        # === Reports Tab ===
-        with tabs[3]:
-            st.subheader("Schedule III Company Act 2013 Proforma")
-            with st.expander("Balance Sheet (Schedule III Format)", expanded=True):
-                st.dataframe(bs_out.fillna(0), use_container_width=True)
-            with st.expander("Profit & Loss Statement", expanded=False):
-                st.dataframe(pl_out.fillna(0), use_container_width=True)
-            st.markdown("#### Notes to Accounts (1-26)")
-            for label, df in notes:
-                with st.expander(label):
-                    st.dataframe(df.fillna(0), use_container_width=True)
-
-        # === Export Tab ===
-        with tabs[4]:
-            st.subheader("Export Reports")
-            output = io.BytesIO()
-            with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                bs_out.fillna(0).to_excel(writer, sheet_name="Balance Sheet", index=False, header=False)
-                pl_out.fillna(0).to_excel(writer, sheet_name="Profit and Loss", index=False, header=False)
-                notes_groups = [notes[0:5], notes[5:10], notes[10:15], notes[15:20], notes[20:26]]
-                for idx, group in enumerate(notes_groups, start=1):
-                    sheetname = f"Notes {idx*5-4}-{min(idx*5,len(notes))}"
-                    write_notes_with_labels(writer, sheetname, group)
-                # KPI/Ratio Sheet
-                kpi_df = pd.DataFrame({
-                    'Ratio':['Current Ratio','Profit Margin','ROA','Debt-to-Equity','Quick Ratio'],
-                    'Value':[f"{current_ratio:.2f}",f"{profit_margin:.2f}%",f"{roa:.2f}%",f"{dteq:.2f}",f"{quick_ratio:.2f}"]
-                })
-                kpi_df.to_excel(writer, sheet_name="Ratios", index=False)
-                rev_trend_df.to_excel(writer, sheet_name="Revenue Trend")
-                profit_df.to_excel(writer, sheet_name="Profit Trend")
-            output.seek(0)
-            st.download_button(
-                label="⬇️ Download Full Excel Report",
-                data=output,
-                file_name="Schedule_III_Company_Act_Report.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            )
-            st.info("PDF export: Save as PDF using Excel after download. MCA integration-ready format table provided for use.")
-
-    except Exception as e:
-        for tab in tabs[1:]:
-            with tab:
-                st.error(f"❌ Error processing file: {str(e)}")
-else:
-    for tab in tabs[1:]:
-        with tab:
-            st.info("⏳ Please upload an Excel file to enable dashboards and reporting.")
-
