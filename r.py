@@ -167,7 +167,7 @@ def call_gemini_api(prompt: str) -> dict:
         text_response = response.text.strip()
         
         # Clean response (remove markdown formatting if present)
-        if text_response.startswith("```
+        if text_response.startswith("```):
             text_response = text_response[7:-3].strip()
         elif text_response.startswith("```"):
             text_response = text_response[3:-3].strip()
@@ -575,3 +575,4 @@ st.markdown("""
     <p>🤖 AI Financial Mapping Tool | Enhanced with Google Gemini API | Built with Streamlit</p>
 </div>
 """, unsafe_allow_html=True)
+
