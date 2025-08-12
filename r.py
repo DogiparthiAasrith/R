@@ -121,7 +121,7 @@ def call_gemini_api(prompt: str) -> dict:
         response = model.generate_content(prompt)
         text_response = response.text.strip()
         # Remove markdown formatting if present
-        if text_response.startswith("```
+        if text_response.startswith("```"):
             text_response = text_response.split("```").strip() if "```
         return json.loads(text_response)
     except Exception as e:
@@ -988,3 +988,4 @@ if uploaded_file:
                 fig, ax = plt.subplots(figsize=(3,3))
                 ax.pie(pie_vals, labels=pie_labels, autopct='%1.0f%%', startangle=90)
                 ax.axis('equal')
+
