@@ -122,7 +122,7 @@ def call_gemini_api(prompt: str) -> dict:
         text_response = response.text.strip()
         # Remove markdown formatting if present
         if text_response.startswith("```"):
-            text_response = text_response.split("```").strip() if "```
+            text_response = text_response.split("```").strip() 
         return json.loads(text_response)
     except Exception as e:
         return {"error": str(e)}
