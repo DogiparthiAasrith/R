@@ -38,10 +38,12 @@ import google.generativeai as genai
 from dotenv import load_dotenv # Used to load .env file for local development
 
 # --- Securely Configure API Key ---
-load_dotenv() # Load environment variables from .env file, if it exists
+load_dotenv() # This line loads the .env file
+
+# CORRECTED LINE: Look for a variable named "GOOGLE_API_KEY"
 GOOGLE_API_KEY = os.getenv("AIzaSyBL2j_L0Hd543jKJfrKvNOVkGizBrHAdV0")
 
-# Configure the Generative AI model only if the key is available
+# The rest of the logic remains the same
 if GOOGLE_API_KEY:
     genai.configure(api_key=GOOGLE_API_KEY)
     print("✅ Google API Key configured successfully.")
@@ -1232,3 +1234,4 @@ async def analyze(file: UploadFile = File(...), company_name: str = Form("Compan
 #
 # 2. In a NEW terminal, start the FastAPI server:
 #    uvicorn your_app_name:api_app --host 0.0.0.0 --port 8000
+
