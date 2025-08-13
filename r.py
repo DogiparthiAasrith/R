@@ -15,7 +15,7 @@ import openai
 # ------------------ CONFIGURE API KEY ----------------
 # The hardcoded key has been removed for security.
 # Ensure you set the OPENAI_API_KEY environment variable.
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+API_KEY = os.getenv("API_KEY")
 
 if not OPENAI_API_KEY:
     # A more robust error message for the developer
@@ -1655,3 +1655,4 @@ async def analyze(file: UploadFile = File(...), company_name: str = Form("Compan
         return result
     except Exception as e:
         return {"error": str(e), "message": "An error occurred during file processing."}
+
