@@ -346,7 +346,7 @@ def write_notes_with_labels(writer, sheetname, notes_with_labels):
 
 
 # ===============================
-# Comprehensive financial data processing function with NaN handling
+# Corrected Comprehensive financial data processing function
 # ===============================
 
 def process_financials(bs_df, pl_df):
@@ -404,11 +404,8 @@ def process_financials(bs_df, pl_df):
     other_longterm_liab_cy = fd_cy + icb_cy
     other_longterm_liab_py = fd_py + icb_py
 
-    # Long-term provisions (no data)
     longterm_prov_cy = 0
     longterm_prov_py = 0
-
-    # Short-term borrowings (no data)
     shortterm_borrow_cy = 0
     shortterm_borrow_py = 0
 
@@ -655,8 +652,10 @@ def process_financials(bs_df, pl_df):
     pbt_cy = total_rev_cy - total_exp_cy
     pbt_py = total_rev_py - total_exp_py
 
-    pat_cy = pbt_cy - tax_cy
-    pat_py = pbt_py - tax_py
+    tax_cy_pnl = num(safeval(pl_df, 'Dr.Paticulars', 'Provision for tax').get('CY (₹)',0))
+    tax_py_pnl = num(safeval(pl_df, 'Dr.Paticulars', 'Provision for tax').get('PY (₹)',0))
+    pat_cy = pbt_cy - tax_cy_pnl
+    pat_py = pbt_py - tax_py_pnl
 
     num_shares = share_cap_cy / 10 if share_cap_cy > 0 else 10000  # Assume ₹10 per share
     eps_cy = pat_cy / num_shares if num_shares > 0 else 0
@@ -720,7 +719,7 @@ def process_financials(bs_df, pl_df):
         ['Total Expenses', '', total_exp_cy, total_exp_py],
         ['V. Profit Before Tax (III - IV)', '', pbt_cy, pbt_py],
         ['VI. Tax Expense', '', '', ''],
-        ['(a) Current Tax', '', tax_cy, tax_py],
+        ['(a) Current Tax', '', tax_cy_pnl, tax_py_pnl],
         ['VII. Profit for the Period (V - VI)', '', pat_cy, pat_py],
         ['VIII. Earnings per Equity Share (Basic & Diluted)', '', eps_cy, eps_py]
     ])
@@ -728,6 +727,7 @@ def process_financials(bs_df, pl_df):
     # ===============================
     # Create all 26 Notes DataFrames
     # ===============================
+    # Note 1
     note1 = pd.DataFrame({
         'Particulars': [
             'Authorised Share Capital',
@@ -741,7 +741,8 @@ def process_financials(bs_df, pl_df):
         'CY (₹)': [authorised_cap, '', '', share_cap_cy, '', '', share_cap_cy],
         'PY (₹)': [authorised_cap, '', '', share_cap_py, '', '', share_cap_py]
     })
-
+    
+    # Note 2
     note2 = pd.DataFrame({
         'Particulars': [
             'General Reserve',
@@ -768,7 +769,8 @@ def process_financials(bs_df, pl_df):
             '', reserves_total_py
         ]
     })
-
+    
+    # Note 3
     note3 = pd.DataFrame({
         'Particulars': [
             'Term loans',
@@ -782,12 +784,14 @@ def process_financials(bs_df, pl_df):
         'PY (₹)': ['', tl_py, vl_py, '', longterm_borrow_py]
     })
 
+    # Note 4
     note4 = pd.DataFrame({
         'Particulars': ['Deferred Tax Liabilities (Net)'],
         'CY (₹)': [0],
         'PY (₹)': [0]
     })
 
+    # Note 5
     note5 = pd.DataFrame({
         'Particulars': [
             'Loans from Directors (Unsecured)',
@@ -797,19 +801,22 @@ def process_financials(bs_df, pl_df):
         'CY (₹)': [fd_cy, icb_cy, other_longterm_liab_cy],
         'PY (₹)': [fd_py, icb_py, other_longterm_liab_py]
     })
-
+    
+    # Note 6
     note6 = pd.DataFrame({
         'Particulars': ['Long-term Provisions (Employee Benefits)'],
         'CY (₹)': [longterm_prov_cy],
         'PY (₹)': [longterm_prov_py]
     })
-
+    
+    # Note 7
     note7 = pd.DataFrame({
         'Particulars': ['Short-term Borrowings from Banks'],
         'CY (₹)': [shortterm_borrow_cy],
         'PY (₹)': [shortterm_borrow_py]
     })
 
+    # Note 8
     note8 = pd.DataFrame({
         'Particulars': [
             'Trade Payables:',
@@ -822,6 +829,7 @@ def process_financials(bs_df, pl_df):
         'PY (₹)': ['', min(creditors_py, 100000), max(0, creditors_py-100000), '', creditors_py]
     })
 
+    # Note 9
     note9 = pd.DataFrame({
         'Particulars': [
             'Bills Payable',
@@ -835,6 +843,7 @@ def process_financials(bs_df, pl_df):
         'PY (₹)': [bp_py, oe_py, pd_py, 0, '', other_cur_liab_py]
     })
 
+    # Note 10
     note10 = pd.DataFrame({
         'Particulars': [
             'Provision for employee benefits:',
@@ -849,32 +858,31 @@ def process_financials(bs_df, pl_df):
         'PY (₹)': ['', 0, '', '', tax_py, '', tax_py]
     })
 
-    note11 = pd.DataFrame({
-        'Asset Class': [
-            'Land & Building',
-            'Plant & Machinery',
-            'Furniture & Fixtures',
-            'Computers',
-            '',
-            'Total'
-        ],
-        'Gross Block (₹)': [land_cy, plant_cy, furn_cy, comp_cy, '', gross_block_cy],
-        'Accumulated Depreciation (₹)': ['-', plant_cy-plant_cy, furn_cy-(furn_cy-20000), comp_cy-(comp_cy-20000), '', acc_dep_cy],
-        'Net Block (₹)': [land_cy, plant_py, 20000, 20000, '', net_ppe_cy]
-    })
+    # Note 11 (Corrected to be more robust)
+    note11 = pd.DataFrame([
+        ['Land & Building', land_cy, num(safeval(bs_df, A, "Land").get('Accumulated Depreciation (₹)', 0)), num(safeval(bs_df, A, "Land").get('Net Block (₹)', land_cy - 0))],
+        ['Plant & Machinery', plant_cy, num(safeval(bs_df, A, "Plant").get('Accumulated Depreciation (₹)', 0)), num(safeval(bs_df, A, "Plant").get('Net Block (₹)', plant_cy - 0))],
+        ['Furniture & Fixtures', furn_cy, num(safeval(bs_df, A, "Furniture").get('Accumulated Depreciation (₹)', 0)), num(safeval(bs_df, A, "Furniture").get('Net Block (₹)', furn_cy - 0))],
+        ['Computers', comp_cy, num(safeval(bs_df, A, "Computer").get('Accumulated Depreciation (₹)', 0)), num(safeval(bs_df, A, "Computer").get('Net Block (₹)', comp_cy - 0))],
+        ['Total', gross_block_cy, acc_dep_cy, net_ppe_cy]
+    ], columns=['Asset Class', 'Gross Block (₹)', 'Accumulated Depreciation (₹)', 'Net Block (₹)'])
 
+
+    # Note 12
     note12 = pd.DataFrame({
         'Particulars': ['Software', 'Patents', 'Total'],
         'CY (₹)': [0, 0, 0],
         'PY (₹)': [0, 0, 0]
     })
 
+    # Note 13
     note13 = pd.DataFrame({
         'Particulars': ['Capital Work-in-Progress'],
         'CY (₹)': [cwip_cy],
         'PY (₹)': [cwip_py]
     })
 
+    # Note 14
     note14 = pd.DataFrame({
         'Particulars': [
             'Investment in equity instruments:',
@@ -887,12 +895,14 @@ def process_financials(bs_df, pl_df):
         'PY (₹)': ['', eq_py, mf_py, '', investments_py]
     })
 
+    # Note 15
     note15 = pd.DataFrame({
         'Particulars': ['Deferred Tax Assets (Net)'],
         'CY (₹)': [dta_cy],
         'PY (₹)': [dta_py]
     })
 
+    # Note 16
     note16 = pd.DataFrame({
         'Particulars': [
             'Capital advances:',
@@ -907,6 +917,7 @@ def process_financials(bs_df, pl_df):
         'PY (₹)': ['', 0, 0, '', 0, '', longterm_loans_py]
     })
 
+    # Note 17
     note17 = pd.DataFrame({
         'Particulars': [
             'Unamortised expenses:',
@@ -918,6 +929,7 @@ def process_financials(bs_df, pl_df):
         'PY (₹)': ['', prelim_exp_py, '', prelim_exp_py]
     })
 
+    # Note 18
     note18 = pd.DataFrame({
         'Particulars': [
             'Investment in mutual funds',
@@ -929,6 +941,7 @@ def process_financials(bs_df, pl_df):
         'PY (₹)': [0, 0, '', current_inv_py]
     })
 
+    # Note 19
     note19 = pd.DataFrame({
         'Particulars': [
             'Raw materials',
@@ -942,6 +955,7 @@ def process_financials(bs_df, pl_df):
         'PY (₹)': [0, 0, stock_py, 0, '', stock_py]
     })
 
+    # Note 20
     note20 = pd.DataFrame({
         'Particulars': [
             'Trade receivables outstanding for more than 6 months:',
@@ -970,6 +984,7 @@ def process_financials(bs_df, pl_df):
         ]
     })
 
+    # Note 21
     note21 = pd.DataFrame({
         'Particulars': [
             'Cash on hand',
@@ -983,6 +998,7 @@ def process_financials(bs_df, pl_df):
         'PY (₹)': [cash_py, '', bank_py, 0, '', cash_total_py]
     })
 
+    # Note 22
     note22 = pd.DataFrame({
         'Particulars': [
             'Loans and advances to employees:',
@@ -997,6 +1013,7 @@ def process_financials(bs_df, pl_df):
         'PY (₹)': ['', loan_adv_py//2, '', '', loan_adv_py//2, '', loan_adv_py]
     })
 
+    # Note 23
     note23 = pd.DataFrame({
         'Particulars': [
             'Prepaid expenses:',
@@ -1010,6 +1027,7 @@ def process_financials(bs_df, pl_df):
         'PY (₹)': ['', prepaid_py//2, 0, prepaid_py//2, '', prepaid_py]
     })
 
+    # Note 24
     note24 = pd.DataFrame({
         'Particulars': [
             'Sale of products:',
@@ -1022,6 +1040,7 @@ def process_financials(bs_df, pl_df):
         'PY (₹)': ['', sales_py, sales_ret_py, '', net_sales_py]
     })
 
+    # Note 25
     note25 = pd.DataFrame({
         'Particulars': [
             'Interest income:',
@@ -1036,6 +1055,7 @@ def process_financials(bs_df, pl_df):
         'PY (₹)': ['', int_py, '', '', oi_py, '', other_inc_py]
     })
 
+    # Note 26
     note26 = pd.DataFrame({
         'Particulars': [
             'Purchases of raw materials/goods',
@@ -1060,6 +1080,7 @@ def process_financials(bs_df, pl_df):
             cost_mat_py
         ]
     })
+
 
     notes = [
         ("Note 1: Share Capital", note1),
