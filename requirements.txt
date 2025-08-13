@@ -6,3 +6,4 @@ matplotlib
 plotly
 google-generativeai
 fastapi
+uvicorn
