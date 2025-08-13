@@ -40,7 +40,7 @@ from dotenv import load_dotenv # Used to load .env file for local development
 
 
 # CORRECTED LINE: Look for a variable named "GOOGLE_API_KEY"
-GOOGLE_API_KEY = os.getenv("AIzaSyBL2j_L0Hd543jKJfrKvNOVkGizBrHAdV0")
+GOOGLE_API_KEY = os.getenv("AIzaSyCzO_9xkyXe3_DgIZsa8wswEdYGRh5U7Ps")
 
 # The rest of the logic remains the same
 if GOOGLE_API_KEY:
@@ -1233,5 +1233,6 @@ async def analyze(file: UploadFile = File(...), company_name: str = Form("Compan
 #
 # 2. In a NEW terminal, start the FastAPI server:
 #    uvicorn your_app_name:api_app --host 0.0.0.0 --port 8000
+
 
 
