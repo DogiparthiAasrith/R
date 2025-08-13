@@ -6,8 +6,10 @@ from datetime import datetime
 import matplotlib.pyplot as plt
 import os
 import json
-import openai  # Using OpenAI library
+import google.generativeai as genai  # Gemini API
+
 import requests
+import openai
 from fastapi import FastAPI, File, UploadFile, Form
 
 # ------------------ CONFIGURE API KEY ----------------
@@ -23,258 +25,64 @@ else:
     openai.api_key = OPENAI_API_KEY
 
 
-# ------- Improved Utility functions with comprehensive NaN handling -------
 def num(x):
-    """Convert value to number with comprehensive NaN handling"""
-    if x is None or pd.isnull(x) or pd.isna(x):
-        return 0.0
+    if x is None or pd.isnull(x) or pd.isna(x): return 0.0
     if isinstance(x, (int, float)):
-        if np.isnan(x) or np.isinf(x):
-            return 0.0
+        if np.isnan(x) or np.isinf(x): return 0.0
         return float(x)
-    
     x_str = str(x).replace(',', '').replace('–', '-').replace('\xa0', '').replace('nan', '0').strip()
-    if x_str == '' or x_str.lower() in ['nan', 'none', 'null', '#n/a', '#value!', '#div/0!']:
-        return 0.0
-    
+    if x_str == '' or x_str.lower() in ['nan', 'none', 'null', '#n/a', '#value!', '#div/0!']: return 0.0
     try:
         result = float(x_str)
-        if np.isnan(result) or np.isinf(result):
-            return 0.0
+        if np.isnan(result) or np.isinf(result): return 0.0
         return result
     except (ValueError, TypeError):
         return 0.0
 
 def safe_int(x, default=0):
-    """Safely convert to integer with NaN handling"""
     try:
-        if pd.isnull(x) or pd.isna(x):
-            return default
+        if pd.isnull(x) or pd.isna(x): return default
         result = int(float(x))
-        if np.isnan(result):
-            return default
+        if np.isnan(result): return default
         return result
     except (ValueError, TypeError, OverflowError):
         return default
 
 def safeval(df, col, name):
-    """Safely get values from DataFrame with comprehensive error handling"""
     try:
-        if col not in df.columns:
-            print(f"Warning: Column '{col}' not found in DataFrame")
-            return pd.Series(dtype=object)
-        
-        # Clean the search
-        if pd.isnull(name) or name == '':
-            return pd.Series(dtype=object)
-            
-        # Create filter with proper NaN handling
-        col_series = df[col].fillna('')  # Replace NaN with empty string
+        if col not in df.columns: return pd.Series(dtype=object)
+        if pd.isnull(name) or name == '': return pd.Series(dtype=object)
+        col_series = df[col].fillna('')
         filt = col_series.astype(str).str.contains(str(name), case=False, na=False)
         v = df.loc[filt]
-        
-        if not v.empty:
-            return v.iloc[0]
-        else:
-            return pd.Series(dtype=object)
-    except Exception as e:
-        print(f"Warning in safeval for {name}: {e}")
+        if not v.empty: return v.iloc[0]
+        else: return pd.Series(dtype=object)
+    except:
         return pd.Series(dtype=object)
 
 def find_header_row(df_raw, sheet_name, possible_headers):
-    """
-    Improved header detection with comprehensive NaN handling
-    """
-    print(f"\nSearching for header in {sheet_name} sheet...")
-    print(f"DataFrame shape: {df_raw.shape}")
-    
-    # Handle empty DataFrame
-    if df_raw.empty:
-        print("Warning: DataFrame is empty")
-        return 0
-    
-    # Print first few rows for debugging with NaN handling
-    print("\nFirst 10 rows of raw data:")
-    for i in range(min(10, len(df_raw))):
-        try:
-            row_values = []
-            for x in df_raw.iloc[i].values:
-                if pd.notna(x) and str(x).strip() != '':
-                    row_values.append(str(x).strip())
-            print(f"Row {i}: {row_values}")
-        except Exception as e:
-            print(f"Row {i}: Error reading row - {e}")
-    
+    if df_raw.empty: return 0
     header_row = None
-    
-    # Try each possible header pattern
     for header_pattern in possible_headers:
-        print(f"\nLooking for pattern: {header_pattern}")
-        
         for i in range(len(df_raw)):
             try:
-                row = df_raw.iloc[i]
-                # Convert all values in row to string and clean them with NaN handling
-                row_values = []
-                for x in row.values:
-                    if pd.notna(x) and str(x).strip() != '':
-                        row_values.append(str(x).upper().strip())
-                
+                row_values = [str(x).upper().strip()
+                              for x in df_raw.iloc[i].values
+                              if pd.notna(x) and str(x).strip() != ""]
                 row_text = ' '.join(row_values)
-                
-                # Check if any of the header keywords are present
                 if any(keyword.upper() in row_text for keyword in header_pattern if keyword):
-                    print(f"Found potential header at row {i}: {row_values}")
                     header_row = i
                     break
-            except Exception as e:
-                print(f"Error processing row {i}: {e}")
-                continue
-        
+            except: continue
         if header_row is not None:
             break
-    
     return header_row if header_row is not None else 0
-
-def read_bs_and_pl(iofile):
-    """
-    Improved function to read Balance Sheet and P&L with comprehensive error handling
-    """
-    try:
-        xl = pd.ExcelFile(iofile)
-        print(f"Available sheets: {xl.sheet_names}")
-        
-        # Find Balance Sheet with comprehensive search
-        bs_sheet_names = ['Balance Sheet', 'BalanceSheet', 'BS', 'Balance_Sheet', 'Bal Sheet', 'BALANCE SHEET']
-        bs_sheet = None
-        for sheet in bs_sheet_names:
-            if sheet in xl.sheet_names:
-                bs_sheet = sheet
-                break
-        
-        # Fallback search for sheets containing balance sheet keywords
-        if bs_sheet is None:
-            for sheet in xl.sheet_names:
-                if any(word in sheet.lower() for word in ['balance', 'bs', 'statement of financial position']):
-                    bs_sheet = sheet
-                    print(f"Found Balance Sheet by keyword matching: {bs_sheet}")
-                    break
-        
-        if bs_sheet is None:
-            bs_sheet = xl.sheet_names[0]  # Use first sheet as fallback
-            print(f"Balance Sheet not found, using first sheet: {bs_sheet}")
-        
-        # Read Balance Sheet with error handling
-        try:
-            bs_raw = pd.read_excel(xl, bs_sheet, header=None)
-            bs_raw = bs_raw.fillna('')  # Replace NaN with empty strings
-        except Exception as e:
-            print(f"Error reading Balance Sheet: {e}")
-            raise Exception(f"Could not read Balance Sheet from {bs_sheet}")
-        
-        # Multiple possible header patterns for Balance Sheet
-        bs_header_patterns = [
-            ['LIABILITIES', 'ASSETS'],
-            ['LIABILITY', 'ASSET'], 
-            ['LIAB', 'ASSET'],
-            ['Particulars', 'Amount'],
-            ['Description', 'Current Year', 'Previous Year'],
-            ['EQUITY AND LIABILITIES'],
-            ['EQUITY', 'LIABILITIES'],
-            ['SOURCES', 'APPLICATION'],
-            ['CY', 'PY'],
-            ['Current', 'Previous']
-        ]
-        
-        bs_head_row = find_header_row(bs_raw, 'Balance Sheet', bs_header_patterns)
-        
-        try:
-            bs = pd.read_excel(xl, bs_sheet, header=bs_head_row)
-            bs = bs.loc[:, ~bs.columns.str.contains('^Unnamed', na=False)]
-            bs = bs.fillna(0)  # Replace NaN with 0 for calculations
-        except Exception as e:
-            print(f"Error processing Balance Sheet headers: {e}")
-            bs = pd.read_excel(xl, bs_sheet, header=0)
-            bs = bs.fillna(0)
-        
-        # Find Profit & Loss Sheet with comprehensive search
-        pl_sheet_names = [
-            'Profit & Loss', 'Profit &amp; Loss', 'P&L', 'PL', 'Profit and Loss', 
-            'Income Statement', 'PROFIT & LOSS', 'PROFIT AND LOSS',
-            'Statement of Comprehensive Income', 'P & L', 'PnL', 'P&amp;L'
-        ]
-        pl_sheet = None
-        for sheet in pl_sheet_names:
-            if sheet in xl.sheet_names:
-                pl_sheet = sheet
-                break
-        
-        # Fallback search for sheets containing P&L keywords
-        if pl_sheet is None:
-            for sheet in xl.sheet_names:
-                sheet_lower = sheet.lower()
-                if any(word in sheet_lower for word in ['profit', 'loss', 'income', 'p&l', 'pnl', 'p & l']):
-                    pl_sheet = sheet
-                    print(f"Found P&L Sheet by keyword matching: {pl_sheet}")
-                    break
-        
-        if pl_sheet is None:
-            raise Exception(f"Could not find Profit & Loss sheet. Available sheets: {xl.sheet_names}")
-        
-        print(f"Using P&L sheet: {pl_sheet}")
-        
-        # Read P&L with error handling
-        try:
-            pl_raw = pd.read_excel(xl, pl_sheet, header=None)
-            pl_raw = pl_raw.fillna('')  # Replace NaN with empty strings
-        except Exception as e:
-            print(f"Error reading P&L sheet: {e}")
-            raise Exception(f"Could not read P&L sheet from {pl_sheet}")
-        
-        # Multiple possible header patterns for P&L
-        pl_header_patterns = [
-            ['DR.PATICULARS', 'CR.PARTICULARS'],
-            ['DR.PARTICULARS', 'CR.PARTICULARS'], 
-            ['DEBIT', 'CREDIT'],
-            ['Dr.Particulars', 'Cr.Particulars'],
-            ['Dr.Paticulars', 'Cr.Particulars'],  # Handle spelling variation
-            ['Expenses', 'Income'],
-            ['Particulars', 'Debit', 'Credit'],
-            ['Description', 'Amount'],
-            ['PARTICULARS', 'CURRENT YEAR', 'PREVIOUS YEAR'],
-            ['Revenue', 'Expenses'],
-            ['EXPENSE', 'INCOME'],
-            ['DR', 'CR'],
-            ['Debit', 'Credit'],
-            ['CY', 'PY']
-        ]
-        
-        pl_head_row = find_header_row(pl_raw, 'Profit & Loss', pl_header_patterns)
-        
-        try:
-            pl = pd.read_excel(xl, pl_sheet, header=pl_head_row)
-            pl = pl.loc[:, ~pl.columns.str.contains('^Unnamed', na=False)]
-            pl = pl.fillna(0)  # Replace NaN with 0 for calculations
-        except Exception as e:
-            print(f"Error processing P&L headers: {e}")
-            pl = pd.read_excel(xl, pl_sheet, header=0)
-            pl = pl.fillna(0)
-        
-        print(f"\nBalance Sheet columns: {list(bs.columns)}")
-        print(f"P&L columns: {list(pl.columns)}")
-        
-        return bs, pl
-        
-    except Exception as e:
-        print(f"Error in read_bs_and_pl: {e}")
-        raise Exception(f"Error reading Excel file: {str(e)}. Please check file format and sheet names.")
 
 def write_notes_with_labels(writer, sheetname, notes_with_labels):
     """Write notes to Excel with error handling"""
     startrow = 0
     try:
         for label, df in notes_with_labels:
-            # Clean the DataFrame
             df_clean = df.fillna(0)
             label_row = pd.DataFrame([[label] + [""] * (df_clean.shape[1] - 1)], columns=df_clean.columns)
             label_row.to_excel(writer, sheet_name=sheetname, startrow=startrow, index=False, header=False)
@@ -283,6 +91,83 @@ def write_notes_with_labels(writer, sheetname, notes_with_labels):
             startrow += len(df_clean) + 2
     except Exception as e:
         print(f"Error writing notes: {e}")
+
+# -------------------- Read Excel BS and PL --------------------
+def read_bs_and_pl(iofile):
+    xl = pd.ExcelFile(iofile)
+    # --- Balance Sheet ---
+    bs_sheet = None
+    for sheet in xl.sheet_names:
+        if any(word in sheet.lower() for word in ['balance']): bs_sheet = sheet; break
+    if bs_sheet is None: bs_sheet = xl.sheet_names[0]
+    bs_raw = pd.read_excel(xl, bs_sheet, header=None).fillna('')
+    bs_head_row = find_header_row(bs_raw, 'Balance Sheet', [['LIABILITIES','ASSETS'],['Particulars']])
+    bs = pd.read_excel(xl, bs_sheet, header=bs_head_row).fillna(0)
+    bs = bs.loc[:, ~bs.columns.astype(str).str.startswith("Unnamed")]
+
+    # --- Profit & Loss ---
+    pl_sheet = None
+    for sheet in xl.sheet_names:
+        if any(word in sheet.lower() for word in ['profit', 'loss', 'income', 'p&l']):
+            pl_sheet = sheet; break
+    if pl_sheet is None: raise Exception("Could not find Profit & Loss sheet.")
+    pl_raw = pd.read_excel(xl, pl_sheet, header=None).fillna('')
+    pl_head_row = find_header_row(pl_raw, 'Profit & Loss', [['DR.PARTICULARS','CR.PARTICULARS'],['Particulars']])
+    pl = pd.read_excel(xl, pl_sheet, header=pl_head_row).fillna(0)
+    pl = pl.loc[:, ~pl.columns.astype(str).str.startswith("Unnamed")]
+    return bs, pl
+
+# -------------------- Gemini API Helper Functions --------------------
+def dataframes_to_prompt(bs_df: pd.DataFrame, pl_df: pd.DataFrame) -> str:
+    bs_text = bs_df.fillna('').to_csv(index=False)
+    pl_text = pl_df.fillna('').to_csv(index=False)
+    prompt = (
+        "You are a financial AI agent. "
+        "You will receive two tables as CSV strings: Balance Sheet and Profit & Loss Statement, in any format. "
+        "Interpret these tables and map the values into the traditional Schedule III format as per Companies Act 2013. "
+        "Return your answer in JSON format with keys: 'balance_sheet', 'profit_loss', and 'notes'. "
+        "Here is the Balance Sheet CSV:\n"
+        f"{bs_text}\n"
+        "Here is the Profit & Loss Statement CSV:\n"
+        f"{pl_text}\n"
+        "Provide the structured output."
+    )
+    return prompt
+
+def call_gemini_api(prompt: str) -> dict:
+    try:
+        model = genai.GenerativeModel("gemini-2.5-flash")
+        response = model.generate_content(prompt)
+        text_response = response.text
+        return json.loads(text_response)
+    except json.JSONDecodeError:
+        return {"error": "Response not valid JSON", "raw_response": text_response}
+    except Exception as e:
+        return {"error": str(e)}
+
+def process_with_gemini(bs_df, pl_df):
+    prompt = dataframes_to_prompt(bs_df, pl_df)
+    gemini_data = call_gemini_api(prompt)
+    if "error" in gemini_data:
+        return None, None, None, gemini_data
+    try:
+        bs_out = pd.DataFrame(gemini_data.get("balance_sheet", []))
+        pl_out = pd.DataFrame(gemini_data.get("profit_loss", []))
+        notes_list = []
+        for idx, note in enumerate(gemini_data.get("notes", []), start=1):
+            label = f"Note {idx}"
+            note_df = pd.DataFrame(note)
+            notes_list.append((label, note_df))
+        totals = {
+            "total_assets_cy": num(bs_out.iloc[-1,2]) if not bs_out.empty else 0,
+            "total_equity_liab_cy": num(bs_out.iloc[-1,2]) if not bs_out.empty else 0,
+            "total_rev_cy": num(pl_out.iloc[2,2]) if len(pl_out) > 2 else 0,
+            "pat_cy": num(pl_out.iloc[-2,2]) if len(pl_out) > 2 else 0,
+            "eps_cy": 0, "eps_py": 0,
+        }
+        return bs_out, pl_out, notes_list, totals
+    except Exception as e:
+        return None, None, None, {"error": str(e)}
 
 # ===============================
 # Comprehensive financial data processing function with NaN handling
@@ -1039,129 +924,6 @@ def process_financials(bs_df, pl_df):
 
     return bs_out, pl_out, notes, totals
 
-
-
-def write_notes_with_labels(writer, sheetname, notes_with_labels):
-    """Write notes to Excel with error handling"""
-    startrow = 0
-    try:
-        for label, df in notes_with_labels:
-            df_clean = df.fillna(0)
-            label_row = pd.DataFrame([[label] + [""] * (df_clean.shape[1] - 1)], columns=df_clean.columns)
-            label_row.to_excel(writer, sheet_name=sheetname, startrow=startrow, index=False, header=False)
-            startrow += 1
-            df_clean.to_excel(writer, sheet_name=sheetname, startrow=startrow, index=False)
-            startrow += len(df_clean) + 2
-    except Exception as e:
-        print(f"Error writing notes: {e}")
-
-# -------------------- Read Excel BS and PL --------------------
-def read_bs_and_pl(iofile):
-    xl = pd.ExcelFile(iofile)
-    # --- Balance Sheet ---
-    bs_sheet = None
-    for sheet in xl.sheet_names:
-        if any(word in sheet.lower() for word in ['balance']): bs_sheet = sheet; break
-    if bs_sheet is None: bs_sheet = xl.sheet_names[0]
-    bs_raw = pd.read_excel(xl, bs_sheet, header=None).fillna('')
-    bs_head_row = find_header_row(bs_raw, 'Balance Sheet', [['LIABILITIES','ASSETS'],['Particulars']])
-    bs = pd.read_excel(xl, bs_sheet, header=bs_head_row).fillna(0)
-    bs = bs.loc[:, ~bs.columns.astype(str).str.startswith("Unnamed")]
-
-    # --- Profit & Loss ---
-    pl_sheet = None
-    for sheet in xl.sheet_names:
-        if any(word in sheet.lower() for word in ['profit', 'loss', 'income', 'p&l']):
-            pl_sheet = sheet; break
-    if pl_sheet is None: raise Exception("Could not find Profit & Loss sheet.")
-    pl_raw = pd.read_excel(xl, pl_sheet, header=None).fillna('')
-    pl_head_row = find_header_row(pl_raw, 'Profit & Loss', [['DR.PARTICULARS','CR.PARTICULARS'],['Particulars']])
-    pl = pd.read_excel(xl, pl_sheet, header=pl_head_row).fillna(0)
-    pl = pl.loc[:, ~pl.columns.astype(str).str.startswith("Unnamed")]
-    return bs, pl
-
-# -------------------- OpenAI API Helper Functions --------------------
-def dataframes_to_prompt(bs_df: pd.DataFrame, pl_df: pd.DataFrame) -> str:
-    bs_text = bs_df.fillna('').to_csv(index=False)
-    pl_text = pl_df.fillna('').to_csv(index=False)
-    prompt = (
-        "You are a financial AI agent specialized in Indian accounting standards. "
-        "You will receive two tables as CSV strings: a Balance Sheet and a Profit & Loss Statement. "
-        "Your task is to interpret these tables and map the financial data into the standard Schedule III format as prescribed by the Companies Act, 2013. "
-        "You must return your answer ONLY as a single, valid JSON object. Do not add any text before or after the JSON object. "
-        "The JSON object should have three main keys: 'balance_sheet', 'profit_loss', and 'notes'. "
-        "Each key should contain a list of JSON objects, where each object represents a row in the respective financial statement or note. "
-        "Here is the Balance Sheet CSV:\n"
-        f"{bs_text}\n"
-        "Here is the Profit & Loss Statement CSV:\n"
-        f"{pl_text}\n"
-        "Provide the structured JSON output now."
-    )
-    return prompt
-
-def call_openai_api(prompt: str) -> dict:
-    """
-    Sends a prompt to the OpenAI API and returns the parsed JSON response.
-    """
-    if not OPENAI_API_KEY:
-        return {"error": "OpenAI API key is not configured."}
-    try:
-        # Using the chat completions endpoint is recommended
-        response = openai.ChatCompletion.create(
-            model="gpt-3.5-turbo-1106",  # A model that is good with JSON outputs
-            messages=[
-                {"role": "system", "content": "You are a helpful financial assistant that only responds with JSON."},
-                {"role": "user", "content": prompt}
-            ],
-            response_format={"type": "json_object"} # Enforces JSON output
-        )
-        text_response = response.choices[0].message['content']
-        return json.loads(text_response)
-    except json.JSONDecodeError as e:
-        return {"error": "Response was not valid JSON.", "raw_response": str(e)}
-    except Exception as e:
-        # Catch other potential API errors (e.g., rate limits, invalid request)
-        return {"error": f"An OpenAI API error occurred: {str(e)}"}
-
-def process_with_openai(bs_df, pl_df):
-    """
-    Processes financial dataframes using the OpenAI API to structure them.
-    """
-    prompt = dataframes_to_prompt(bs_df, pl_df)
-    openai_data = call_openai_api(prompt)
-
-    # Check for any errors returned from the API call
-    if "error" in openai_data:
-        # Pass the error information for debugging in the UI
-        return None, None, None, openai_data
-
-    try:
-        # Extract data from the JSON response
-        bs_out = pd.DataFrame(openai_data.get("balance_sheet", []))
-        pl_out = pd.DataFrame(openai_data.get("profit_loss", []))
-
-        notes_list = []
-        # Process the 'notes' section from the JSON
-        for idx, note_data in enumerate(openai_data.get("notes", []), start=1):
-            label = note_data.get("title", f"Note {idx}") # Get title from JSON or create a default
-            note_df = pd.DataFrame(note_data.get("data", []))
-            if not note_df.empty:
-                notes_list.append((label, note_df))
-
-        # Calculate totals for the dashboard with fallback values
-        totals = {
-            "total_assets_cy": num(bs_out.iloc[-1, 2]) if not bs_out.empty and len(bs_out.columns) > 2 else 0,
-            "total_equity_liab_cy": num(bs_out.iloc[-1, 2]) if not bs_out.empty and len(bs_out.columns) > 2 else 0,
-            "total_rev_cy": num(pl_out.iloc[2, 2]) if not pl_out.empty and len(pl_out) > 2 and len(pl_out.columns) > 2 else 0,
-            "pat_cy": num(pl_out.iloc[-2, 2]) if not pl_out.empty and len(pl_out) > 2 and len(pl_out.columns) > 2 else 0,
-            "eps_cy": 0, "eps_py": 0, # Placeholder values
-        }
-
-        return bs_out, pl_out, notes_list, totals
-    except (KeyError, IndexError, Exception) as e:
-        # Handle cases where the JSON structure is valid but missing expected keys/indices
-        return None, None, None, {"error": f"Failed to parse the AI's JSON structure: {str(e)}"}
-
 # ---------------------- Streamlit UI code below -------------------------
 
 st.set_page_config(page_title="AI Financial Mapping Tool", layout="wide")
@@ -1187,6 +949,7 @@ st.markdown(
     """, unsafe_allow_html=True
 )
 
+
 st.markdown("### 📑 Upload Your Excel File")
 uploaded_file = st.file_uploader(
     "Drag and drop file here",
@@ -1203,14 +966,14 @@ with tabs[0]:
         st.info("🔍 The system now handles missing data, empty cells, and various Excel formats")
         
         # Show file details
-        st.write("*File Details:*")
+        st.write("File Details:")
         st.write(f"- File name: {uploaded_file.name}")
         st.write(f"- File size: {uploaded_file.size:,} bytes")
         
     else:
         st.info("Please upload an Excel file to proceed.")
         st.markdown("""
-        *Comprehensive Support:*
+        Comprehensive Support:
         - Handles NaN (Not a Number) values automatically
         - Works with missing data and empty cells
         - Supports various Excel formats and structures
@@ -1469,7 +1232,7 @@ if uploaded_file:
                 
                 output.seek(0)
                 st.download_button(
-                    label="⬇️ Download Financial Dashboard Excel",
+                    label="⬇ Download Financial Dashboard Excel",
                     data=output,
                     file_name="Financial_Dashboard.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
@@ -1496,13 +1259,13 @@ if uploaded_file:
             st.subheader("Extracted Data Preview")
             col1, col2 = st.columns(2)
             with col1:
-                st.write("*Balance Sheet Preview:*")
+                st.write("Balance Sheet Preview:")
                 try:
                     st.dataframe(bs_out.head(10).fillna(0))
                 except Exception:
                     st.warning("Could not display Balance Sheet preview")
             with col2:
-                st.write("*P&L Preview:*")
+                st.write("P&L Preview:")
                 try:
                     st.dataframe(pl_out.head(10).fillna(0))
                 except Exception:
@@ -1536,7 +1299,7 @@ if uploaded_file:
                 
                 output.seek(0)
                 st.download_button(
-                    label="⬇️ Download Complete Schedule III Excel",
+                    label="⬇ Download Complete Schedule III Excel",
                     data=output,
                     file_name="Schedule_III_Complete_Output.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
@@ -1555,12 +1318,12 @@ if uploaded_file:
                 st.error(f"❌ Error processing file: {error_msg}")
                 
                 if "cannot convert float NaN to integer" in error_msg:
-                    st.info("💡 *NaN Handling Issue Detected:*")
+                    st.info("💡 NaN Handling Issue Detected:")
                     st.write("- The file contains missing or invalid numerical data")
                     st.write("- This version includes comprehensive NaN handling")
                     st.write("- All NaN values are automatically converted to appropriate defaults")
                     
-                st.info("💡 *General Troubleshooting Tips:*")
+                st.info("💡 General Troubleshooting Tips:")
                 st.write("1. Ensure your Excel file contains actual financial data")
                 st.write("2. Check that numeric cells contain valid numbers (not text)")
                 st.write("3. Verify sheet names contain 'Balance Sheet' and 'Profit & Loss' keywords")
@@ -1573,7 +1336,7 @@ else:
             st.info(f"⏳ Awaiting Excel file upload for {tab_name.lower()}.")
             
             if tab_idx == 0:  # Dashboard tab
-                st.write("*Enhanced Features:*")
+                st.write("Enhanced Features:")
                 st.write("✅ Comprehensive NaN (Not a Number) handling")
                 st.write("✅ Automatic data type conversion with error recovery")
                 st.write("✅ Robust missing data imputation")
