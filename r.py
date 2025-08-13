@@ -8,14 +8,10 @@ import os
 import json
 import asyncio
 import requests # New import for making API calls
-
-# ------------------ NEW AI IMPORTS ------------------
 import openai
 
 # ------------------ CONFIGURE API KEY ----------------
-# The hardcoded key has been removed for security.
-# Ensure you set the OPENAI_API_KEY environment variable.
-API_KEY = os.getenv("API_KEY")
+API_KEY = os.getenv("OPENAI_API_KEY")
 
 if not API_KEY:
     # A more robust error message for the developer
@@ -31,7 +27,7 @@ def enhance_with_ai_structuring(bs_df, pl_df):
     Sends Balance Sheet and P/L DataFrames to OpenAI to standardize and clean.
     Falls back to originals if AI fails.
     """
-    if not OPENAI_API_KEY:
+    if not API_KEY:
         print("⚠️ AI function skipped due to missing API key.")
         return bs_df, pl_df
 
@@ -56,7 +52,7 @@ def enhance_with_ai_structuring(bs_df, pl_df):
         """
         
         # Use a model from OpenAI for chat completions
-        client = openai.OpenAI(api_key=OPENAI_API_KEY)
+        client = openai.OpenAI(api_key=API_KEY)
         resp = client.chat.completions.create(
             model="gpt-4o", # You can choose another model like gpt-3.5-turbo
             messages=[
@@ -133,7 +129,7 @@ def safeval(df, col, name):
             return pd.Series(dtype=object)
             
         # Create filter with proper NaN handling
-        col_series = df[col].fillna('')  # Replace NaN with empty string
+        col_series = df[col].fillna('') # Replace NaN with empty string
         filt = col_series.astype(str).str.contains(str(name), case=False, na=False)
         v = df.loc[filt]
         
@@ -1655,5 +1651,3 @@ async def analyze(file: UploadFile = File(...), company_name: str = Form("Compan
         return result
     except Exception as e:
         return {"error": str(e), "message": "An error occurred during file processing."}
-
-
