@@ -117,8 +117,8 @@ def read_bs_and_pl(iofile):
     pl = pl.loc[:, ~pl.columns.astype(str).str.startswith("Unnamed")]
     return bs, pl
 
-# -------------------- Gemini API Helper Functions --------------------
-def dataframes_to_prompt(bs_df: pd.DataFrame, pl_df: pd.DataFrame) -> str:
+# -------------------- OpenAI API Helper Functions --------------------
+def dataframes_to_prompt_openai(bs_df: pd.DataFrame, pl_df: pd.DataFrame) -> str:
     bs_text = bs_df.fillna('').to_csv(index=False)
     pl_text = pl_df.fillna('').to_csv(index=False)
     prompt = (
@@ -134,36 +134,41 @@ def dataframes_to_prompt(bs_df: pd.DataFrame, pl_df: pd.DataFrame) -> str:
     )
     return prompt
 
-def call_gemini_api(prompt: str) -> dict:
+def call_openai_api(prompt: str) -> dict:
     try:
-        model = genai.GenerativeModel("gemini-2.5-flash")
-        response = model.generate_content(prompt)
-        text_response = response.text
+        response = openai.ChatCompletion.create(
+            model="gpt-4o-mini",  # change model as needed
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.2,
+            max_tokens=3000
+        )
+        text_response = response['choices'][0]['message']['content']
         return json.loads(text_response)
     except json.JSONDecodeError:
         return {"error": "Response not valid JSON", "raw_response": text_response}
     except Exception as e:
         return {"error": str(e)}
 
-def process_with_gemini(bs_df, pl_df):
-    prompt = dataframes_to_prompt(bs_df, pl_df)
-    gemini_data = call_gemini_api(prompt)
-    if "error" in gemini_data:
-        return None, None, None, gemini_data
+def process_with_openai(bs_df, pl_df):
+    prompt = dataframes_to_prompt_openai(bs_df, pl_df)
+    openai_data = call_openai_api(prompt)
+    if "error" in openai_data:
+        return None, None, None, openai_data
     try:
-        bs_out = pd.DataFrame(gemini_data.get("balance_sheet", []))
-        pl_out = pd.DataFrame(gemini_data.get("profit_loss", []))
+        bs_out = pd.DataFrame(openai_data.get("balance_sheet", []))
+        pl_out = pd.DataFrame(openai_data.get("profit_loss", []))
         notes_list = []
-        for idx, note in enumerate(gemini_data.get("notes", []), start=1):
+        for idx, note in enumerate(openai_data.get("notes", []), start=1):
             label = f"Note {idx}"
             note_df = pd.DataFrame(note)
             notes_list.append((label, note_df))
         totals = {
-            "total_assets_cy": num(bs_out.iloc[-1,2]) if not bs_out.empty else 0,
-            "total_equity_liab_cy": num(bs_out.iloc[-1,2]) if not bs_out.empty else 0,
-            "total_rev_cy": num(pl_out.iloc[2,2]) if len(pl_out) > 2 else 0,
-            "pat_cy": num(pl_out.iloc[-2,2]) if len(pl_out) > 2 else 0,
-            "eps_cy": 0, "eps_py": 0,
+            "total_assets_cy": num(bs_out.iloc[-1, 2]) if not bs_out.empty else 0,
+            "total_equity_liab_cy": num(bs_out.iloc[-1, 2]) if not bs_out.empty else 0,
+            "total_rev_cy": num(pl_out.iloc[2, 2]) if len(pl_out) > 2 else 0,
+            "pat_cy": num(pl_out.iloc[-2, 2]) if len(pl_out) > 2 else 0,
+            "eps_cy": 0,
+            "eps_py": 0,
         }
         return bs_out, pl_out, notes_list, totals
     except Exception as e:
@@ -1394,3 +1399,4 @@ st.markdown(
     """,
     unsafe_allow_html=True
 )
+
