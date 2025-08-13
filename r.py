@@ -6,32 +6,32 @@ from datetime import datetime
 import matplotlib.pyplot as plt
 import os
 import json
-import asyncio # New import for FastAPI async functionality
+import asyncio
+import requests # New import for making API calls
 
 # ------------------ NEW AI IMPORTS ------------------
-import google.generativeai as genai
+import openai
 
 # ------------------ CONFIGURE API KEY ----------------
 # The hardcoded key has been removed for security.
-# Ensure you set the GOOGLE_API_KEY environment variable.
-GOOGLE_API_KEY = os.getenv("AIzaSyCzO_9xkyXe3_DgIZsa8wswEdYGRh5U7Ps")
+# Ensure you set the OPENAI_API_KEY environment variable.
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
-if not GOOGLE_API_KEY:
+if not OPENAI_API_KEY:
     # A more robust error message for the developer
-    print("⚠️ GOOGLE_API_KEY environment variable not set. AI functions will not work.")
+    print("⚠️ OPENAI_API_KEY environment variable not set. AI functions will not work.")
     # For Streamlit, you can display a warning to the user
-    st.warning("AI features are disabled: Please set the GOOGLE_API_KEY environment variable.")
-    # Fallback to a mock model or raise an error to stop execution
-    # For this example, we will let the code proceed but the AI function will fail gracefully.
-
-genai.configure(api_key=GOOGLE_API_KEY)
+    st.warning("AI features are disabled: Please set the OPENAI_API_KEY environment variable.")
+else:
+    # Configure the API only if the key exists
+    openai.api_key = OPENAI_API_KEY
 
 def enhance_with_ai_structuring(bs_df, pl_df):
     """
-    Sends Balance Sheet and P/L DataFrames to Google Gemini to standardize and clean.
+    Sends Balance Sheet and P/L DataFrames to OpenAI to standardize and clean.
     Falls back to originals if AI fails.
     """
-    if not GOOGLE_API_KEY:
+    if not OPENAI_API_KEY:
         print("⚠️ AI function skipped due to missing API key.")
         return bs_df, pl_df
 
@@ -39,7 +39,7 @@ def enhance_with_ai_structuring(bs_df, pl_df):
         bs_json = bs_df.to_dict(orient="records")
         pl_json = pl_df.to_dict(orient="records")
 
-        prompt = f"""
+        prompt_message = f"""
         Act as a financial data structuring AI.
         Input: JSON tables for Balance Sheet and Profit & Loss extracted from Excel.
         Goal: Output JSON matching Schedule III format with columns: 'Particulars', 'CY (₹)', 'PY (₹)'.
@@ -54,21 +54,23 @@ def enhance_with_ai_structuring(bs_df, pl_df):
         Balance Sheet: {json.dumps(bs_json)}
         P&L: {json.dumps(pl_json)}
         """
+        
+        # Use a model from OpenAI for chat completions
+        client = openai.OpenAI(api_key=OPENAI_API_KEY)
+        resp = client.chat.completions.create(
+            model="gpt-4o", # You can choose another model like gpt-3.5-turbo
+            messages=[
+                {"role": "system", "content": "You are a financial data structuring AI that returns data in a structured JSON format."},
+                {"role": "user", "content": prompt_message}
+            ],
+            response_format={"type": "json_object"}
+        )
 
-        model = genai.GenerativeModel("gemini-1.5-flash")
-        resp = model.generate_content(prompt)
-
-        if not resp or not resp.candidates:
-            print("⚠️ AI response empty — fallback to baseline parser.")
+        if not resp or not resp.choices:
+            print("⚠️ OpenAI response empty — fallback to baseline parser.")
             return bs_df, pl_df
 
-        ai_text = resp.candidates[0].content.parts[0].text
-        # Clean up Markdown formatting that some models might add
-        if ai_text.startswith('```json'):
-            ai_text = ai_text[7:]
-        if ai_text.endswith('```'):
-            ai_text = ai_text[:-3]
-
+        ai_text = resp.choices[0].message.content
         structured = json.loads(ai_text)
 
         bs_ai = pd.DataFrame(structured.get("balance_sheet", []))
@@ -780,8 +782,8 @@ def process_financials(bs_df, pl_df):
             '',
             'Total'
         ],
-        'CY (₹)': ['', '', tl_cy, vl_cy, '', longterm_borrow_cy],
-        'PY (₹)': ['', '', tl_py, vl_py, '', longterm_borrow_py]
+        'CY (₹)': ['', tl_cy, vl_cy, '', longterm_borrow_cy],
+        'PY (₹)': ['', tl_py, vl_py, '', longterm_borrow_py]
     })
 
     note4 = pd.DataFrame({
@@ -1653,8 +1655,3 @@ async def analyze(file: UploadFile = File(...), company_name: str = Form("Compan
         return result
     except Exception as e:
         return {"error": str(e), "message": "An error occurred during file processing."}
-
-
-
-
-
