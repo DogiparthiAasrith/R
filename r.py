@@ -14,7 +14,7 @@ import google.generativeai as genai
 # ------------------ CONFIGURE API KEY ----------------
 # The hardcoded key has been removed for security.
 # Ensure you set the GOOGLE_API_KEY environment variable.
-GOOGLE_API_KEY = os.getenv("AIzaSyCzO_9xkyXe3_DgIZsa8wswEdYGRh5U7Ps")
+GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 
 if not GOOGLE_API_KEY:
     # A more robust error message for the developer
@@ -1653,4 +1653,5 @@ async def analyze(file: UploadFile = File(...), company_name: str = Form("Compan
         return result
     except Exception as e:
         return {"error": str(e), "message": "An error occurred during file processing."}
+
 
