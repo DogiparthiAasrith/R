@@ -5,3 +5,4 @@ openpyxl
 matplotlib
 plotly
 google-generativeai
+fastapi
