@@ -11,7 +11,7 @@ import json
 import google.generativeai as genai   # pip install google-generativeai
 
 # ------------------ CONFIGURE API KEY ----------------
-GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY", "AIzaSyBL2j_L0Hd543jKJfrKvNOVkGizBrHAdV0")
+GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY", "AIzaSyCzO_9xkyXe3_DgIZsa8wswEdYGRh5U7Ps")
 genai.configure(api_key=GOOGLE_API_KEY)
 
 def enhance_with_ai_structuring(bs_df, pl_df):
@@ -1588,3 +1588,4 @@ st.markdown(
     """,
     unsafe_allow_html=True
 )
+
