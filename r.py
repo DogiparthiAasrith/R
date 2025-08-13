@@ -6,12 +6,24 @@ from datetime import datetime
 import matplotlib.pyplot as plt
 import os
 import json
+import asyncio # New import for FastAPI async functionality
 
 # ------------------ NEW AI IMPORTS ------------------
-import google.generativeai as genai   # pip install google-generativeai
+import google.generativeai as genai
 
 # ------------------ CONFIGURE API KEY ----------------
-GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY", "AIzaSyCzO_9xkyXe3_DgIZsa8wswEdYGRh5U7Ps")
+# The hardcoded key has been removed for security.
+# Ensure you set the GOOGLE_API_KEY environment variable.
+GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
+
+if not GOOGLE_API_KEY:
+    # A more robust error message for the developer
+    print("⚠️ GOOGLE_API_KEY environment variable not set. AI functions will not work.")
+    # For Streamlit, you can display a warning to the user
+    st.warning("AI features are disabled: Please set the GOOGLE_API_KEY environment variable.")
+    # Fallback to a mock model or raise an error to stop execution
+    # For this example, we will let the code proceed but the AI function will fail gracefully.
+
 genai.configure(api_key=GOOGLE_API_KEY)
 
 def enhance_with_ai_structuring(bs_df, pl_df):
@@ -19,12 +31,16 @@ def enhance_with_ai_structuring(bs_df, pl_df):
     Sends Balance Sheet and P/L DataFrames to Google Gemini to standardize and clean.
     Falls back to originals if AI fails.
     """
+    if not GOOGLE_API_KEY:
+        print("⚠️ AI function skipped due to missing API key.")
+        return bs_df, pl_df
+
     try:
         bs_json = bs_df.to_dict(orient="records")
         pl_json = pl_df.to_dict(orient="records")
 
         prompt = f"""
-        Act as a financial data structuring AI. 
+        Act as a financial data structuring AI.
         Input: JSON tables for Balance Sheet and Profit & Loss extracted from Excel.
         Goal: Output JSON matching Schedule III format with columns: 'Particulars', 'CY (₹)', 'PY (₹)'.
         Ensure numeric parsing and remove invalid rows.
@@ -47,6 +63,12 @@ def enhance_with_ai_structuring(bs_df, pl_df):
             return bs_df, pl_df
 
         ai_text = resp.candidates[0].content.parts[0].text
+        # Clean up Markdown formatting that some models might add
+        if ai_text.startswith('```json'):
+            ai_text = ai_text[7:]
+        if ai_text.endswith('```'):
+            ai_text = ai_text[:-3]
+
         structured = json.loads(ai_text)
 
         bs_ai = pd.DataFrame(structured.get("balance_sheet", []))
@@ -215,7 +237,7 @@ def read_bs_and_pl(iofile):
         # Multiple possible header patterns for Balance Sheet
         bs_header_patterns = [
             ['LIABILITIES', 'ASSETS'],
-            ['LIABILITY', 'ASSET'], 
+            ['LIABILITY', 'ASSET'],
             ['LIAB', 'ASSET'],
             ['Particulars', 'Amount'],
             ['Description', 'Current Year', 'Previous Year'],
@@ -239,7 +261,7 @@ def read_bs_and_pl(iofile):
         
         # Find Profit & Loss Sheet with comprehensive search
         pl_sheet_names = [
-            'Profit & Loss', 'Profit &amp; Loss', 'P&L', 'PL', 'Profit and Loss', 
+            'Profit & Loss', 'Profit &amp; Loss', 'P&L', 'PL', 'Profit and Loss',
             'Income Statement', 'PROFIT & LOSS', 'PROFIT AND LOSS',
             'Statement of Comprehensive Income', 'P & L', 'PnL', 'P&amp;L'
         ]
@@ -274,7 +296,7 @@ def read_bs_and_pl(iofile):
         # Multiple possible header patterns for P&L
         pl_header_patterns = [
             ['DR.PATICULARS', 'CR.PARTICULARS'],
-            ['DR.PARTICULARS', 'CR.PARTICULARS'], 
+            ['DR.PARTICULARS', 'CR.PARTICULARS'],
             ['DEBIT', 'CREDIT'],
             ['Dr.Particulars', 'Cr.Particulars'],
             ['Dr.Paticulars', 'Cr.Particulars'],  # Handle spelling variation
@@ -347,7 +369,8 @@ def process_financials(bs_df, pl_df):
     surplus_cy = num(surplus_row.get('CY (₹)', 0))
     surplus_py = num(surplus_row.get('PY (₹)', 0))
     surplus_open_cy = surplus_py  # Opening balance = PY closing
-    surplus_open_py = 70000       # Prior year opening balance fixed
+    # NOTE: Hardcoded value for prior year opening balance. This should ideally be from data.
+    surplus_open_py = 70000
 
     profit_row = safeval(bs_df, L, "Add: Current Year Profit")
     profit_cy = num(profit_row.get('CY (₹)', 0))
@@ -495,7 +518,7 @@ def process_financials(bs_df, pl_df):
     bank_row = safeval(bs_df, A, "Bank Balance")
 
     cash_cy = num(cash_row.get('CY (₹)', 0))
-    cash_py = num(cash_row.get('PY (₹)', 0))
+    cash_py = num(bank_row.get('PY (₹)', 0))
     bank_cy = num(bank_row.get('CY (₹)', 0))
     bank_py = num(bank_row.get('PY (₹)', 0))
 
@@ -705,7 +728,7 @@ def process_financials(bs_df, pl_df):
     ])
 
     # ===============================
-    # Create all 26 Notes DataFrames (copied exactly from your provided code)
+    # Create all 26 Notes DataFrames
     # ===============================
     note1 = pd.DataFrame({
         'Particulars': [
@@ -1179,8 +1202,15 @@ with tabs[0]:
 if uploaded_file:
     try:
         input_file = io.BytesIO(uploaded_file.read())
-        bs_df, pl_df = read_bs_and_pl(input_file)
-        bs_out, pl_out, notes, totals = process_financials(bs_df, pl_df)
+        # The agent call is now encapsulated in the try block
+        agent = ComprehensiveFinancialAnalysisAgent()
+        analysis_result = agent.analyze_financial_data(input_file)
+        
+        bs_out = analysis_result["schedule_iii"]["balance_sheet"]
+        pl_out = analysis_result["schedule_iii"]["p_and_l"]
+        notes = analysis_result["schedule_iii"]["notes"]
+        totals = analysis_result["totals"]
+        dashboard_data = analysis_result["dashboard_data"]
 
         # --------- VISUAL DASHBOARD TAB -----------
         with tabs[1]:
@@ -1414,7 +1444,7 @@ if uploaded_file:
                     
                     # Asset Distribution
                     pd.DataFrame({
-                        'Asset Type': labels, 
+                        'Asset Type': labels,
                         'Amount': [safe_int(d) for d in distributions]
                     }).to_excel(writer, sheet_name="Asset Distribution", index=False)
                     
@@ -1534,7 +1564,7 @@ else:
                 st.write("✅ Comprehensive NaN (Not a Number) handling")
                 st.write("✅ Automatic data type conversion with error recovery")
                 st.write("✅ Robust missing data imputation")
-                st.write("✅ Enhanced column detection algorithms") 
+                st.write("✅ Enhanced column detection algorithms")
                 st.write("✅ Improved error messages and debugging")
                 st.write("✅ Graceful degradation for problematic data")
 
@@ -1601,22 +1631,25 @@ async def analyze(file: UploadFile = File(...), company_name: str = Form("Compan
     """
     Asynchronous API endpoint to analyze financial data.
     """
-    content = await file.read()
-    agent = ComprehensiveFinancialAnalysisAgent()
-
-    # Run the synchronous, CPU-bound analysis in a separate thread
-    # This prevents blocking the FastAPI server's event loop.
-    result = await asyncio.to_thread(
-        agent.analyze_financial_data,
-        io.BytesIO(content),
-        company_name
-    )
-
-    # Convert pandas DataFrames to JSON-serializable dictionaries for the API response
-    result["schedule_iii"]["balance_sheet"] = result["schedule_iii"]["balance_sheet"].to_dict(orient="records")
-    result["schedule_iii"]["p_and_l"] = result["schedule_iii"]["p_and_l"].to_dict(orient="records")
-    result["schedule_iii"]["notes"] = [
-        {"label": label, "data": df.to_dict(orient="records")}
-        for label, df in result["schedule_iii"]["notes"]
-    ]
-    return result
+    try:
+        content = await file.read()
+        agent = ComprehensiveFinancialAnalysisAgent()
+        
+        # Run the synchronous, CPU-bound analysis in a separate thread
+        # This prevents blocking the FastAPI server's event loop.
+        result = await asyncio.to_thread(
+            agent.analyze_financial_data,
+            io.BytesIO(content),
+            company_name
+        )
+    
+        # Convert pandas DataFrames to JSON-serializable dictionaries for the API response
+        result["schedule_iii"]["balance_sheet"] = result["schedule_iii"]["balance_sheet"].to_dict(orient="records")
+        result["schedule_iii"]["p_and_l"] = result["schedule_iii"]["p_and_l"].to_dict(orient="records")
+        result["schedule_iii"]["notes"] = [
+            {"label": label, "data": df.to_dict(orient="records")}
+            for label, df in result["schedule_iii"]["notes"]
+        ]
+        return result
+    except Exception as e:
+        return {"error": str(e), "message": "An error occurred during file processing."}
