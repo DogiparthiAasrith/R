@@ -1589,3 +1589,34 @@ st.markdown(
     unsafe_allow_html=True
 )
 
+# ===============================
+# FastAPI Endpoint (with proper async handling)
+# ===============================
+from fastapi import FastAPI, File, UploadFile, Form
+
+api_app = FastAPI()
+
+@api_app.post("/analyze/")
+async def analyze(file: UploadFile = File(...), company_name: str = Form("Company")):
+    """
+    Asynchronous API endpoint to analyze financial data.
+    """
+    content = await file.read()
+    agent = ComprehensiveFinancialAnalysisAgent()
+
+    # Run the synchronous, CPU-bound analysis in a separate thread
+    # This prevents blocking the FastAPI server's event loop.
+    result = await asyncio.to_thread(
+        agent.analyze_financial_data,
+        io.BytesIO(content),
+        company_name
+    )
+
+    # Convert pandas DataFrames to JSON-serializable dictionaries for the API response
+    result["schedule_iii"]["balance_sheet"] = result["schedule_iii"]["balance_sheet"].to_dict(orient="records")
+    result["schedule_iii"]["p_and_l"] = result["schedule_iii"]["p_and_l"].to_dict(orient="records")
+    result["schedule_iii"]["notes"] = [
+        {"label": label, "data": df.to_dict(orient="records")}
+        for label, df in result["schedule_iii"]["notes"]
+    ]
+    return result
