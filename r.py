@@ -17,14 +17,14 @@ import openai
 # Ensure you set the OPENAI_API_KEY environment variable.
 API_KEY = os.getenv("API_KEY")
 
-if not OPENAI_API_KEY:
+if not API_KEY:
     # A more robust error message for the developer
     print("⚠️ OPENAI_API_KEY environment variable not set. AI functions will not work.")
     # For Streamlit, you can display a warning to the user
     st.warning("AI features are disabled: Please set the OPENAI_API_KEY environment variable.")
 else:
     # Configure the API only if the key exists
-    openai.api_key = OPENAI_API_KEY
+    openai.api_key = API_KEY
 
 def enhance_with_ai_structuring(bs_df, pl_df):
     """
@@ -1655,4 +1655,5 @@ async def analyze(file: UploadFile = File(...), company_name: str = Form("Compan
         return result
     except Exception as e:
         return {"error": str(e), "message": "An error occurred during file processing."}
+
 
