@@ -7,3 +7,4 @@ plotly
 google-generativeai
 fastapi
 uvicorn
+python-multipart
