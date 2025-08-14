@@ -1237,7 +1237,7 @@ if uploaded_file:
                 
                 output.seek(0)
                 st.download_button(
-                    label="⬇ Download Financial Dashboard Excel",
+                    label="⬇️  Download Financial Dashboard Excel",
                     data=output,
                     file_name="Financial_Dashboard.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
@@ -1304,7 +1304,7 @@ if uploaded_file:
                 
                 output.seek(0)
                 st.download_button(
-                    label="⬇ Download Complete Schedule III Excel",
+                    label="⬇️  Download Complete Schedule III Excel",
                     data=output,
                     file_name="Schedule_III_Complete_Output.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
@@ -1399,4 +1399,5 @@ st.markdown(
     """,
     unsafe_allow_html=True
 )
+
 
